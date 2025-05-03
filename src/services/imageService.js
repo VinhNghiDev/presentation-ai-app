@@ -1,4 +1,4 @@
-import axios from 'axios';
+// src/services/imageService.js - Sử dụng Fetch API thay vì Axios
 
 /**
  * Cấu hình API key cho Unsplash
@@ -42,21 +42,30 @@ export const searchUnsplashImages = async (query, options = {}) => {
     
     const { page = 1, perPage = 20, orientation = 'landscape' } = options;
     
-    const response = await axios.get('https://api.unsplash.com/search/photos', {
+    // Xây dựng URL với query params
+    const params = new URLSearchParams({
+      query,
+      page,
+      per_page: perPage,
+      orientation
+    });
+    
+    // Sử dụng Fetch API thay vì Axios
+    const response = await fetch(`https://api.unsplash.com/search/photos?${params.toString()}`, {
       headers: {
         'Authorization': `Client-ID ${apiKey}`
-      },
-      params: {
-        query,
-        page,
-        per_page: perPage,
-        orientation
       }
     });
     
-    if (response.data && response.data.results) {
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.results) {
       // Biến đổi kết quả trả về thành định dạng phù hợp
-      return response.data.results.map(image => ({
+      return data.results.map(image => ({
         id: image.id,
         url: image.urls.regular,
         thumbnail: image.urls.thumb,
@@ -75,22 +84,6 @@ export const searchUnsplashImages = async (query, options = {}) => {
     return [];
   } catch (error) {
     console.error('Error searching Unsplash images:', error);
-    
-    // Xử lý lỗi API cụ thể
-    if (error.response) {
-      const status = error.response.status;
-      switch (status) {
-        case 401:
-          throw new Error('API key không hợp lệ');
-        case 403:
-          throw new Error('Không có quyền truy cập API');
-        case 429:
-          throw new Error('Đã vượt quá giới hạn tần suất gọi API');
-        default:
-          throw new Error(`Lỗi từ API Unsplash: ${error.message}`);
-      }
-    }
-    
     throw error;
   }
 };
@@ -110,41 +103,40 @@ export const getRandomUnsplashImage = async (query = '', options = {}) => {
     }
     
     const { orientation = 'landscape' } = options;
-    const params = {
-      orientation
-    };
     
+    // Xây dựng URL với query params
+    const params = new URLSearchParams({ orientation });
     if (query) {
-      params.query = query;
+      params.append('query', query);
     }
     
-    const response = await axios.get('https://api.unsplash.com/photos/random', {
+    // Sử dụng Fetch API
+    const response = await fetch(`https://api.unsplash.com/photos/random?${params.toString()}`, {
       headers: {
         'Authorization': `Client-ID ${apiKey}`
-      },
-      params
+      }
     });
     
-    if (response.data) {
-      // Biến đổi kết quả trả về thành định dạng phù hợp
-      const image = response.data;
-      return {
-        id: image.id,
-        url: image.urls.regular,
-        thumbnail: image.urls.thumb,
-        description: image.description || image.alt_description || query,
-        user: {
-          name: image.user.name,
-          username: image.user.username,
-          portfolio: image.user.portfolio_url
-        },
-        download_url: image.links.download,
-        width: image.width,
-        height: image.height
-      };
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
     }
     
-    throw new Error('Không nhận được phản hồi hợp lệ từ Unsplash');
+    const image = await response.json();
+    
+    return {
+      id: image.id,
+      url: image.urls.regular,
+      thumbnail: image.urls.thumb,
+      description: image.description || image.alt_description || query,
+      user: {
+        name: image.user.name,
+        username: image.user.username,
+        portfolio: image.user.portfolio_url
+      },
+      download_url: image.links.download,
+      width: image.width,
+      height: image.height
+    };
   } catch (error) {
     console.error('Error getting random Unsplash image:', error);
     throw error;

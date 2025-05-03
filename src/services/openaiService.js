@@ -1,22 +1,24 @@
-import axios from 'axios';
+// src/services/openaiService.js - Sử dụng Fetch API thay vì Axios
 
 // Cấu hình OpenAI API
 const OPENAI_API_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4'; // hoặc 'gpt-3.5-turbo' cho chi phí thấp hơn
 
 /**
- * Tạo instance Axios cho OpenAI API
+ * Tạo request options cho Fetch API
  * @param {string} apiKey - API key của OpenAI
- * @returns {Object} - Axios instance đã được cấu hình
+ * @param {Object} body - Body của request
+ * @returns {Object} - Options cho fetch
  */
-const createOpenAIInstance = (apiKey) => {
-  return axios.create({
-    baseURL: OPENAI_API_URL,
+const createRequestOptions = (apiKey, body) => {
+  return {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`
-    }
-  });
+    },
+    body: JSON.stringify(body)
+  };
 };
 
 /**
@@ -64,10 +66,9 @@ export const generatePresentation = async (options, apiKey) => {
       throw new Error('OpenAI API Key không được cung cấp');
     }
 
-    const openai = createOpenAIInstance(apiKey);
     const prompt = createPresentationPrompt(options);
-
-    const response = await openai.post('/chat/completions', {
+    
+    const requestBody = {
       model: options.model || DEFAULT_MODEL,
       messages: [
         {
@@ -81,10 +82,20 @@ export const generatePresentation = async (options, apiKey) => {
       ],
       temperature: 0.7,
       max_tokens: 2000
-    });
+    };
 
-    if (response.data && response.data.choices && response.data.choices.length > 0) {
-      const content = response.data.choices[0].message.content;
+    // Sử dụng Fetch API thay vì Axios
+    const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(apiKey, requestBody));
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0) {
+      const content = data.choices[0].message.content;
       
       try {
         // Phân tích cú pháp JSON từ phản hồi
@@ -106,23 +117,6 @@ export const generatePresentation = async (options, apiKey) => {
     }
   } catch (error) {
     console.error('Error generating presentation:', error);
-    
-    // Xử lý các lỗi API cụ thể
-    if (error.response) {
-      const status = error.response.status;
-      switch (status) {
-        case 401:
-          throw new Error('API key không hợp lệ hoặc đã hết hạn');
-        case 429:
-          throw new Error('Đã vượt quá giới hạn tần suất gọi API');
-        case 500:
-        case 503:
-          throw new Error('Lỗi máy chủ OpenAI, vui lòng thử lại sau');
-        default:
-          throw new Error(`Lỗi từ API OpenAI: ${error.message}`);
-      }
-    }
-    
     throw error;
   }
 };
@@ -138,10 +132,8 @@ export const enhanceSlideContent = async (content, apiKey) => {
     if (!apiKey) {
       throw new Error('OpenAI API Key không được cung cấp');
     }
-
-    const openai = createOpenAIInstance(apiKey);
     
-    const response = await openai.post('/chat/completions', {
+    const requestBody = {
       model: DEFAULT_MODEL,
       messages: [
         {
@@ -155,16 +147,92 @@ export const enhanceSlideContent = async (content, apiKey) => {
       ],
       temperature: 0.7,
       max_tokens: 500
-    });
+    };
 
-    if (response.data && response.data.choices && response.data.choices.length > 0) {
-      return response.data.choices[0].message.content;
+    // Sử dụng Fetch API
+    const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(apiKey, requestBody));
+    
+    if (!response.ok) {
+      return content; // Trả về nội dung ban đầu nếu có lỗi
+    }
+    
+    const data = await response.json();
+
+    if (data.choices && data.choices.length > 0) {
+      return data.choices[0].message.content;
     }
     
     return content; // Trả về nội dung ban đầu nếu không thành công
   } catch (error) {
     console.error('Error enhancing slide content:', error);
     return content; // Trả về nội dung ban đầu khi có lỗi
+  }
+};
+
+/**
+ * Đề xuất hình ảnh dựa trên nội dung slide
+ * @param {string} slideContent - Nội dung slide
+ * @param {string} apiKey - API key của OpenAI
+ * @returns {Promise<Array>} - Mảng các từ khóa tìm kiếm hình ảnh
+ */
+export const suggestImageKeywords = async (slideContent, apiKey) => {
+  try {
+    if (!apiKey) {
+      throw new Error('OpenAI API Key không được cung cấp');
+    }
+    
+    const requestBody = {
+      model: DEFAULT_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: 'Bạn là chuyên gia về tìm kiếm và gợi ý hình ảnh cho bài thuyết trình.'
+        },
+        {
+          role: 'user',
+          content: `Dựa trên nội dung slide sau, hãy đề xuất 3 từ khóa tìm kiếm hình ảnh phù hợp. Trả về dưới dạng danh sách JSON các cụm từ.\n\n${slideContent}`
+        }
+      ],
+      temperature: 0.6,
+      max_tokens: 150
+    };
+
+    // Sử dụng Fetch API
+    const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(apiKey, requestBody));
+    
+    if (!response.ok) {
+      return []; // Trả về mảng rỗng nếu có lỗi
+    }
+    
+    const data = await response.json();
+
+    if (data.choices && data.choices.length > 0) {
+      const content = data.choices[0].message.content;
+      
+      try {
+        // Cố gắng phân tích JSON từ phản hồi
+        const parsedResponse = JSON.parse(content);
+        if (Array.isArray(parsedResponse)) {
+          return parsedResponse;
+        }
+        return parsedResponse.keywords || [];
+      } catch (e) {
+        // Nếu không phải JSON, tìm các từ khóa từ văn bản
+        const keywordMatches = content.match(/"([^"]+)"|'([^']+)'/g);
+        if (keywordMatches) {
+          return keywordMatches.map(match => match.replace(/["']/g, ''));
+        }
+        // Trích xuất thủ công dựa trên dòng
+        return content.split('\n')
+          .filter(line => line.trim().length > 0)
+          .slice(0, 3);
+      }
+    }
+    
+    return []; // Trả về mảng rỗng nếu không thành công
+  } catch (error) {
+    console.error('Error suggesting image keywords:', error);
+    return []; // Trả về mảng rỗng khi có lỗi
   }
 };
 
@@ -218,121 +286,3 @@ function createFallbackSlides(content, slideCount) {
     };
   });
 }
-
-/**
- * Đề xuất hình ảnh dựa trên nội dung slide
- * @param {string} slideContent - Nội dung slide
- * @param {string} apiKey - API key của OpenAI
- * @returns {Promise<Array>} - Mảng các từ khóa tìm kiếm hình ảnh
- */
-export const suggestImageKeywords = async (slideContent, apiKey) => {
-  try {
-    if (!apiKey) {
-      throw new Error('OpenAI API Key không được cung cấp');
-    }
-
-    const openai = createOpenAIInstance(apiKey);
-    
-    const response = await openai.post('/chat/completions', {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Bạn là chuyên gia về tìm kiếm và gợi ý hình ảnh cho bài thuyết trình.'
-        },
-        {
-          role: 'user',
-          content: `Dựa trên nội dung slide sau, hãy đề xuất 3 từ khóa tìm kiếm hình ảnh phù hợp. Trả về dưới dạng danh sách JSON các cụm từ.\n\n${slideContent}`
-        }
-      ],
-      temperature: 0.6,
-      max_tokens: 150
-    });
-
-    if (response.data && response.data.choices && response.data.choices.length > 0) {
-      const content = response.data.choices[0].message.content;
-      
-      try {
-        // Cố gắng phân tích JSON từ phản hồi
-        const parsedResponse = JSON.parse(content);
-        if (Array.isArray(parsedResponse)) {
-          return parsedResponse;
-        }
-        return parsedResponse.keywords || [];
-      } catch (e) {
-        // Nếu không phải JSON, tìm các từ khóa từ văn bản
-        const keywordMatches = content.match(/"([^"]+)"|'([^']+)'/g);
-        if (keywordMatches) {
-          return keywordMatches.map(match => match.replace(/["']/g, ''));
-        }
-        // Trích xuất thủ công dựa trên dòng
-        return content.split('\n')
-          .filter(line => line.trim().length > 0)
-          .slice(0, 3);
-      }
-    }
-    
-    return []; // Trả về mảng rỗng nếu không thành công
-  } catch (error) {
-    console.error('Error suggesting image keywords:', error);
-    return []; // Trả về mảng rỗng khi có lỗi
-  }
-};
-
-/**
- * Tạo đề xuất và cải thiện cho toàn bộ bài thuyết trình
- * @param {Object} presentation - Dữ liệu bài thuyết trình hiện tại
- * @param {string} apiKey - API key của OpenAI
- * @returns {Promise<Object>} - Đề xuất cải thiện
- */
-export const generatePresentationSuggestions = async (presentation, apiKey) => {
-  try {
-    if (!apiKey) {
-      throw new Error('OpenAI API Key không được cung cấp');
-    }
-
-    const openai = createOpenAIInstance(apiKey);
-    
-    // Chuyển đổi bài thuyết trình hiện tại thành chuỗi
-    const presentationString = JSON.stringify(presentation, null, 2);
-    
-    const response = await openai.post('/chat/completions', {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Bạn là chuyên gia về thiết kế bài thuyết trình. Nhiệm vụ của bạn là đưa ra các đề xuất để cải thiện chất lượng bài thuyết trình.'
-        },
-        {
-          role: 'user',
-          content: `Đây là bài thuyết trình hiện tại của tôi:\n\n${presentationString}\n\nHãy đưa ra các đề xuất để cải thiện bài thuyết trình này. Đề xuất nên bao gồm cải thiện về cấu trúc, nội dung, và các yếu tố hình ảnh. Trả về kết quả dưới dạng JSON với các đề xuất cụ thể cho từng slide.`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000
-    });
-
-    if (response.data && response.data.choices && response.data.choices.length > 0) {
-      const content = response.data.choices[0].message.content;
-      
-      try {
-        // Phân tích cú pháp JSON từ phản hồi
-        return JSON.parse(content);
-      } catch (jsonError) {
-        console.error('Lỗi phân tích JSON:', jsonError);
-        
-        // Nếu không phân tích được JSON, trả về nội dung dạng văn bản
-        return {
-          general: content
-        };
-      }
-    }
-    
-    throw new Error('Không nhận được phản hồi hợp lệ từ OpenAI');
-  } catch (error) {
-    console.error('Error generating presentation suggestions:', error);
-    return {
-      error: error.message
-    };
-  }
-};
