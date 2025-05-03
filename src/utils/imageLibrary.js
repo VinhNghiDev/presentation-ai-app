@@ -1,4 +1,3 @@
-// src/utils/imageLibrary.js
 export const imageCategories = [
     { id: 'business', name: 'Kinh doanh' },
     { id: 'technology', name: 'Công nghệ' },

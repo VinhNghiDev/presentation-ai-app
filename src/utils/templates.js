@@ -1,4 +1,3 @@
-// src/utils/templates.js
 export const slideTemplates = [
     {
       id: 'default',

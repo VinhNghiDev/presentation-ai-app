@@ -1,4 +1,3 @@
-// src/components/Editor/TemplateSelector.js
 import React from 'react';
 import { slideTemplates } from '../../utils/templates';
 

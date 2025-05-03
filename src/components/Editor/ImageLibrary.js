@@ -1,4 +1,3 @@
-// src/components/Editor/ImageLibrary.js
 import React, { useState } from 'react';
 import { imageCategories, images } from '../../utils/imageLibrary';
 

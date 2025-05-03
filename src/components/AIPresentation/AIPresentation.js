@@ -1,4 +1,3 @@
-// src/components/AIPresentation/AIPresentation.js
 import React, { useState, useEffect } from 'react';
 import { generatePresentation, enhanceSlideContent, suggestImageKeywords } from '../../services/openaiService';
 import { createNewElement } from '../../utils/editorUtils';
