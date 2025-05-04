@@ -1,345 +1,519 @@
-// src/components/Editor/EnhancedImageLibrary.js
-import React, { useState, useEffect } from 'react';
-import { 
-  searchUnsplashImages, 
-  getImageCategories, 
-  uploadImageFromComputer, 
-  getUnsplashApiKey, 
-  setUnsplashApiKey,
-  getSampleImages
-} from '../../services/imageService';
+// src/components/Editor/ImageUploader/EnhancedImageLibrary.js
+import React, { useState, useEffect, useCallback } from 'react';
+import { Button, Modal, Row, Col, Form, InputGroup, Spinner, Card, Nav, Tab } from 'react-bootstrap';
+import { searchUnsplashImages, uploadImageFromComputer } from '../../../services/imageService';
+import UnsplashCredit from './UnsplashCredit';
+import ImageCropper from './ImageCropper';
+
+const IMAGE_CATEGORIES = [
+  { id: 'all', name: 'Tất cả' },
+  { id: 'business', name: 'Kinh doanh' },
+  { id: 'technology', name: 'Công nghệ' },
+  { id: 'education', name: 'Giáo dục' },
+  { id: 'nature', name: 'Thiên nhiên' },
+  { id: 'food', name: 'Thực phẩm' },
+  { id: 'health', name: 'Sức khỏe' },
+  { id: 'travel', name: 'Du lịch' },
+  { id: 'abstract', name: 'Trừu tượng' },
+];
+
+// Colors for color filter
+const COLORS = [
+  { name: 'black_and_white', label: 'Đen & Trắng', color: '#000000' },
+  { name: 'black', label: 'Đen', color: '#000000' },
+  { name: 'white', label: 'Trắng', color: '#FFFFFF' },
+  { name: 'yellow', label: 'Vàng', color: '#FFEB3B' },
+  { name: 'orange', label: 'Cam', color: '#FF9800' },
+  { name: 'red', label: 'Đỏ', color: '#F44336' },
+  { name: 'purple', label: 'Tím', color: '#9C27B0' },
+  { name: 'magenta', label: 'Hồng', color: '#E91E63' },
+  { name: 'green', label: 'Xanh lá', color: '#4CAF50' },
+  { name: 'teal', label: 'Xanh lá đậm', color: '#009688' },
+  { name: 'blue', label: 'Xanh dương', color: '#2196F3' },
+];
 
 /**
- * Component thư viện hình ảnh nâng cao
- * @param {Object} props - Props component
- * @param {function} props.onSelectImage - Callback khi chọn hình ảnh
- * @param {function} props.onClose - Callback khi đóng thư viện
+ * EnhancedImageLibrary Component
+ * @param {Object} props - Component props
+ * @param {Function} props.onSelectImage - Callback khi chọn hình ảnh
+ * @param {Function} props.onClose - Callback khi đóng modal
  */
 const EnhancedImageLibrary = ({ onSelectImage, onClose }) => {
-  // State
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  // State cho tab hiện tại
+  const [activeTab, setActiveTab] = useState('search');
+  
+  // State cho tìm kiếm Unsplash
   const [searchQuery, setSearchQuery] = useState('');
+  const [category, setCategory] = useState('all');
+  const [orientation, setOrientation] = useState('landscape');
+  const [color, setColor] = useState('');
   const [images, setImages] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-  const [showApiKeyForm, setShowApiKeyForm] = useState(false);
   
-  // Lấy categories và API key khi component được tạo
+  // State cho upload hình ảnh
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [showCropper, setShowCropper] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  
+  // State cho my images
+  const [myImages, setMyImages] = useState([]);
+  const [selectedImageForEdit, setSelectedImageForEdit] = useState(null);
+
+  // Load các hình ảnh đã lưu khi mở modal
   useEffect(() => {
-    const imageCategories = getImageCategories();
-    setCategories(imageCategories);
+    loadMyImages();
     
-    const savedApiKey = getUnsplashApiKey();
-    setApiKey(savedApiKey);
-    
-    // Tải hình ảnh mẫu nếu không có API key
-    if (!savedApiKey) {
-      const sampleImages = getSampleImages('all', 12);
-      setImages(sampleImages);
-    } else {
-      loadImages();
+    // Load hình ảnh mẫu khi tab là search
+    if (activeTab === 'search') {
+      handleSearch();
     }
-  }, []);
-  
-  /**
-   * Tải hình ảnh từ API hoặc mẫu
-   * @param {boolean} reset - Reset danh sách hình ảnh?
-   */
-  const loadImages = async (reset = false) => {
+  }, [activeTab]);
+
+  // Hàm tải các hình ảnh đã lưu từ localStorage
+  const loadMyImages = () => {
     try {
-      setIsLoading(true);
-      setError('');
+      const savedImages = JSON.parse(localStorage.getItem('my_images') || '[]');
+      setMyImages(savedImages);
+    } catch (error) {
+      console.error('Error loading saved images:', error);
+      setMyImages([]);
+    }
+  };
+
+  // Hàm xử lý tìm kiếm hình ảnh
+  const handleSearch = async (resetPage = true) => {
+    try {
+      setLoading(true);
+      const newPage = resetPage ? 1 : page;
       
-      const newPage = reset ? 1 : page;
-      const query = searchQuery.trim() || 
-        (selectedCategory !== 'all' ? categories.find(c => c.id === selectedCategory)?.sample : 'presentation');
-      
-      // Kiểm tra API key
-      const currentApiKey = getUnsplashApiKey();
-      if (!currentApiKey) {
-        // Sử dụng hình ảnh mẫu
-        const sampleImages = getSampleImages(selectedCategory, 12);
-        setImages(reset ? sampleImages : [...images, ...sampleImages]);
-        setHasMore(false);
-        return;
+      // Tạo query từ searchQuery hoặc category
+      let query = searchQuery.trim();
+      if (!query && category !== 'all') {
+        query = IMAGE_CATEGORIES.find(c => c.id === category)?.name || '';
       }
       
-      // Tìm kiếm hình ảnh từ Unsplash
-      const results = await searchUnsplashImages(query, {
+      // Nếu không có query, mặc định tìm hình business
+      if (!query) {
+        query = 'presentation background';
+      }
+      
+      // Gọi API tìm kiếm
+      const result = await searchUnsplashImages(query, {
         page: newPage,
         perPage: 20,
-        orientation: 'landscape'
+        orientation,
+        color
       });
       
-      if (results.length === 0) {
-        setHasMore(false);
+      // Cập nhật state
+      if (resetPage) {
+        setImages(result);
       } else {
-        setPage(newPage + 1);
-        setImages(reset ? results : [...images, ...results]);
-        setHasMore(true);
+        setImages([...images, ...result]);
       }
+      
+      setPage(newPage + 1);
+      setHasMore(result.length === 20);
     } catch (error) {
-      console.error('Error loading images:', error);
-      setError(error.message || 'Có lỗi khi tải hình ảnh');
-      // Sử dụng hình ảnh mẫu khi có lỗi
-      const sampleImages = getSampleImages(selectedCategory, 12);
-      setImages(reset ? sampleImages : [...images, ...sampleImages]);
+      console.error('Error searching images:', error);
+      // Trong trường hợp lỗi, hiển thị hình ảnh mẫu
+      setImages([]);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
-  
-  /**
-   * Xử lý khi thay đổi danh mục
-   * @param {string} categoryId - ID danh mục
-   */
-  const handleCategoryChange = (categoryId) => {
-    setSelectedCategory(categoryId);
-    setImages([]);
-    setPage(1);
-    setHasMore(true);
-    
-    setTimeout(() => {
-      loadImages(true);
-    }, 100);
-  };
-  
-  /**
-   * Xử lý khi tìm kiếm
-   * @param {Object} e - Event
-   */
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setImages([]);
-    setPage(1);
-    setHasMore(true);
-    loadImages(true);
-  };
-  
-  /**
-   * Xử lý khi lưu API key
-   * @param {Object} e - Event
-   */
-  const handleSaveApiKey = (e) => {
-    e.preventDefault();
-    setUnsplashApiKey(apiKey);
-    setShowApiKeyForm(false);
-    setImages([]);
-    setPage(1);
-    loadImages(true);
-  };
-  
-  /**
-   * Xử lý khi tải thêm hình ảnh
-   */
+
+  // Xử lý khi tải thêm hình ảnh
   const handleLoadMore = () => {
-    if (!isLoading && hasMore) {
-      loadImages();
+    if (!loading && hasMore) {
+      handleSearch(false);
     }
   };
-  
-  /**
-   * Xử lý khi tải hình ảnh từ máy tính
-   */
-  const handleUploadImage = () => {
-    uploadImageFromComputer(imageData => {
-      onSelectImage(imageData);
-    });
+
+  // Xử lý khi upload hình ảnh
+  const handleUploadImage = useCallback(async (e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setUploadLoading(true);
+      
+      try {
+        const file = files[0];
+        
+        // Tạo URL tạm thời cho file
+        const reader = new FileReader();
+        reader.onload = () => {
+          const imageData = {
+            id: `upload-${Date.now()}`,
+            src: reader.result,
+            file
+          };
+          
+          setUploadedImage(imageData);
+          setShowCropper(true);
+          setUploadLoading(false);
+        };
+        
+        reader.readAsDataURL(file);
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        setUploadLoading(false);
+      }
+    }
+  }, []);
+
+  // Xử lý khi hoàn thành crop
+  const handleCropComplete = (croppedImage) => {
+    // Thêm vào danh sách hình ảnh của tôi
+    const newImage = {
+      id: `my-image-${Date.now()}`,
+      url: croppedImage,
+      description: 'Uploaded image',
+      width: 800,
+      height: 600,
+      isLocal: true,
+      createdAt: Date.now()
+    };
+    
+    // Cập nhật localStorage
+    const updatedImages = [...myImages, newImage];
+    localStorage.setItem('my_images', JSON.stringify(updatedImages));
+    
+    // Cập nhật state
+    setMyImages(updatedImages);
+    setShowCropper(false);
+    setUploadedImage(null);
+    
+    // Chuyển sang tab My Images
+    setActiveTab('my-images');
   };
-  
+
+  // Xử lý khi xóa hình ảnh
+  const handleDeleteImage = (imageId) => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa hình ảnh này?')) {
+      const updatedImages = myImages.filter(img => img.id !== imageId);
+      localStorage.setItem('my_images', JSON.stringify(updatedImages));
+      setMyImages(updatedImages);
+    }
+  };
+
+  // Xử lý khi chọn hình ảnh
+  const handleSelectImage = (image) => {
+    if (onSelectImage) {
+      onSelectImage(image);
+    }
+  };
+
   return (
-    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-      <div className="modal-dialog modal-xl">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">Thư viện hình ảnh</h5>
-            <button type="button" className="btn-close" onClick={onClose}></button>
-          </div>
+    <Modal
+      show={true}
+      onHide={onClose}
+      size="xl"
+      backdrop="static"
+      keyboard={false}
+    >
+      <Modal.Header closeButton>
+        <Modal.Title>Thư viện hình ảnh</Modal.Title>
+      </Modal.Header>
+      
+      <Modal.Body>
+        <Tab.Container activeKey={activeTab} onSelect={setActiveTab}>
+          <Nav variant="tabs" className="mb-3">
+            <Nav.Item>
+              <Nav.Link eventKey="search">Tìm kiếm hình ảnh</Nav.Link>
+            </Nav.Item>
+            <Nav.Item>
+              <Nav.Link eventKey="upload">Tải lên</Nav.Link>
+            </Nav.Item>
+            <Nav.Item>
+              <Nav.Link eventKey="my-images">Hình ảnh của tôi</Nav.Link>
+            </Nav.Item>
+          </Nav>
           
-          <div className="modal-body">
-            {/* Form API key */}
-            {showApiKeyForm && (
-              <div className="card mb-3">
-                <div className="card-body">
-                  <form onSubmit={handleSaveApiKey}>
-                    <div className="mb-3">
-                      <label htmlFor="unsplashApiKey" className="form-label">Unsplash API Key</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        id="unsplashApiKey"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="Nhập API key của bạn"
-                      />
-                      <div className="form-text">
-                        Bạn có thể lấy API key miễn phí từ <a href="https://unsplash.com/developers" target="_blank" rel="noreferrer">Unsplash Developers</a>
-                      </div>
-                    </div>
-                    <div className="d-flex justify-content-end">
-                      <button type="button" className="btn btn-secondary me-2" onClick={() => setShowApiKeyForm(false)}>Hủy</button>
-                      <button type="submit" className="btn btn-primary">Lưu</button>
-                    </div>
-                  </form>
-                </div>
+          <Tab.Content>
+            {/* Tab tìm kiếm */}
+            <Tab.Pane eventKey="search">
+              <div className="mb-3">
+                <Form onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSearch();
+                }}>
+                  <Row className="align-items-end">
+                    <Col md={5}>
+                      <Form.Group>
+                        <Form.Label>Tìm kiếm hình ảnh</Form.Label>
+                        <InputGroup>
+                          <Form.Control 
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Nhập từ khóa tìm kiếm..."
+                          />
+                          <Button variant="primary" type="submit">
+                            <i className="bi bi-search"></i>
+                          </Button>
+                        </InputGroup>
+                      </Form.Group>
+                    </Col>
+                    
+                    <Col md={3}>
+                      <Form.Group>
+                        <Form.Label>Danh mục</Form.Label>
+                        <Form.Select 
+                          value={category} 
+                          onChange={(e) => setCategory(e.target.value)}
+                        >
+                          {IMAGE_CATEGORIES.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                          ))}
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    
+                    <Col md={2}>
+                      <Form.Group>
+                        <Form.Label>Hướng</Form.Label>
+                        <Form.Select 
+                          value={orientation} 
+                          onChange={(e) => setOrientation(e.target.value)}
+                        >
+                          <option value="landscape">Ngang</option>
+                          <option value="portrait">Dọc</option>
+                          <option value="squarish">Vuông</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    
+                    <Col md={2}>
+                      <Form.Group>
+                        <Form.Label>Màu sắc</Form.Label>
+                        <Form.Select 
+                          value={color} 
+                          onChange={(e) => setColor(e.target.value)}
+                        >
+                          <option value="">Tất cả màu</option>
+                          {COLORS.map(colorOption => (
+                            <option key={colorOption.name} value={colorOption.name}>
+                              {colorOption.label}
+                            </option>
+                          ))}
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                </Form>
               </div>
-            )}
-            
-            {/* Thanh công cụ */}
-            <div className="mb-3 d-flex">
-              <form className="flex-grow-1 me-2" onSubmit={handleSearch}>
-                <div className="input-group">
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Tìm kiếm hình ảnh..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                  <button className="btn btn-primary" type="submit">
-                    <i className="bi bi-search"></i>
-                  </button>
-                </div>
-              </form>
               
-              <button 
-                className="btn btn-outline-primary me-2" 
-                onClick={handleUploadImage}
-                title="Tải lên từ máy tính"
-              >
-                <i className="bi bi-upload"></i>
-              </button>
-              
-              <button 
-                className="btn btn-outline-secondary"
-                onClick={() => setShowApiKeyForm(!showApiKeyForm)}
-                title="Cài đặt API key"
-              >
-                <i className="bi bi-gear"></i>
-              </button>
-            </div>
-            
-            {/* Thông báo lỗi */}
-            {error && (
-              <div className="alert alert-danger" role="alert">
-                {error}
-              </div>
-            )}
-            
-            {/* Danh mục */}
-            <div className="mb-3">
-              <div className="btn-group flex-wrap">
-                <button 
-                  className={`btn ${selectedCategory === 'all' ? 'btn-primary' : 'btn-outline-primary'}`}
-                  onClick={() => handleCategoryChange('all')}
-                >
-                  Tất cả
-                </button>
-                {categories.map(category => (
-                  <button 
-                    key={category.id}
-                    className={`btn ${selectedCategory === category.id ? 'btn-primary' : 'btn-outline-primary'}`}
-                    onClick={() => handleCategoryChange(category.id)}
-                  >
-                    {category.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            {/* Lưới hình ảnh */}
-            <div className="row g-3">
-              {images.map(image => (
-                <div className="col-md-3" key={image.id}>
-                  <div 
-                    className="card h-100 shadow-sm image-card"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => onSelectImage(image)}
-                  >
-                    <img 
-                      src={image.thumbnail || image.url} 
-                      className="card-img-top" 
-                      alt={image.description}
-                      style={{ height: '150px', objectFit: 'cover' }}
-                    />
-                    <div className="card-body p-2">
-                      <p className="card-text small text-truncate">
-                        {image.description}
-                      </p>
-                      {image.user && !image.isLocal && (
-                        <p className="card-text small text-muted">
-                          by {image.user.name}
-                        </p>
+              {loading && images.length === 0 ? (
+                <div className="text-center py-5">
+                  <Spinner animation="border" role="status" variant="primary">
+                    <span className="visually-hidden">Đang tải...</span>
+                  </Spinner>
+                  <p className="mt-3">Đang tìm kiếm hình ảnh...</p>
+                </div>
+              ) : (
+                <>
+                  {images.length === 0 ? (
+                    <div className="text-center py-5">
+                      <p>Không tìm thấy hình ảnh phù hợp.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <Row xs={1} md={2} lg={4} className="g-3">
+                        {images.map(image => (
+                          <Col key={image.id}>
+                            <Card className="h-100">
+                              <div 
+                                className="image-container"
+                                style={{ 
+                                  height: '200px', 
+                                  overflow: 'hidden',
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => handleSelectImage(image)}
+                              >
+                                <Card.Img 
+                                  variant="top" 
+                                  src={image.thumbnail || image.url} 
+                                  alt={image.description}
+                                  style={{ 
+                                    objectFit: 'cover',
+                                    height: '100%',
+                                    width: '100%'
+                                  }}
+                                />
+                              </div>
+                              <Card.Body className="p-2">
+                                <Card.Text className="small text-truncate">
+                                  {image.description}
+                                </Card.Text>
+                                {image.user && (
+                                  <UnsplashCredit user={image.user} />
+                                )}
+                              </Card.Body>
+                            </Card>
+                          </Col>
+                        ))}
+                      </Row>
+                      
+                      {hasMore && (
+                        <div className="text-center mt-4">
+                          <Button 
+                            variant="outline-primary" 
+                            onClick={handleLoadMore}
+                            disabled={loading}
+                          >
+                            {loading ? (
+                              <>
+                                <Spinner
+                                  as="span"
+                                  animation="border"
+                                  size="sm"
+                                  role="status"
+                                  aria-hidden="true"
+                                  className="me-2"
+                                />
+                                Đang tải...
+                              </>
+                            ) : (
+                              'Tải thêm hình ảnh'
+                            )}
+                          </Button>
+                        </div>
                       )}
+                    </>
+                  )}
+                </>
+              )}
+            </Tab.Pane>
+            
+            {/* Tab tải lên */}
+            <Tab.Pane eventKey="upload">
+              <div className="text-center py-5">
+                {uploadLoading ? (
+                  <>
+                    <Spinner animation="border" role="status" variant="primary">
+                      <span className="visually-hidden">Đang tải lên...</span>
+                    </Spinner>
+                    <p className="mt-3">Đang xử lý hình ảnh...</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4">
+                      <i className="bi bi-cloud-upload display-1 text-primary"></i>
+                      <h4 className="mt-3">Tải lên hình ảnh của bạn</h4>
+                      <p className="text-muted">
+                        Hỗ trợ định dạng JPG, PNG và GIF. Kích thước tối đa 5MB.
+                      </p>
                     </div>
-                  </div>
-                </div>
-              ))}
+                    
+                    <div>
+                      <input
+                        type="file"
+                        id="image-upload"
+                        accept="image/*"
+                        className="d-none"
+                        onChange={handleUploadImage}
+                      />
+                      <label htmlFor="image-upload" className="btn btn-primary btn-lg">
+                        <i className="bi bi-upload me-2"></i>
+                        Chọn hình ảnh
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
               
-              {/* Loading placeholder */}
-              {isLoading && Array.from({ length: 4 }).map((_, index) => (
-                <div className="col-md-3" key={`loading-${index}`}>
-                  <div className="card h-100 shadow-sm">
-                    <div className="placeholder-glow" style={{ height: '150px', backgroundColor: '#e9ecef' }} />
-                    <div className="card-body p-2">
-                      <p className="card-text small text-truncate">
-                        <span className="placeholder col-9"></span>
-                      </p>
-                      <p className="card-text small text-muted">
-                        <span className="placeholder col-7"></span>
-                      </p>
-                    </div>
-                  </div>
+              {/* Trình chỉnh sửa hình ảnh */}
+              {showCropper && uploadedImage && (
+                <ImageCropper
+                  image={uploadedImage.src}
+                  onComplete={handleCropComplete}
+                  onCancel={() => {
+                    setShowCropper(false);
+                    setUploadedImage(null);
+                  }}
+                />
+              )}
+            </Tab.Pane>
+            
+            {/* Tab hình ảnh của tôi */}
+            <Tab.Pane eventKey="my-images">
+              {myImages.length === 0 ? (
+                <div className="text-center py-5">
+                  <p>Bạn chưa có hình ảnh nào.</p>
+                  <Button 
+                    variant="primary" 
+                    onClick={() => setActiveTab('upload')}
+                  >
+                    <i className="bi bi-upload me-2"></i>
+                    Tải lên hình ảnh đầu tiên
+                  </Button>
                 </div>
-              ))}
-            </div>
-            
-            {/* Nút tải thêm */}
-            {hasMore && !isLoading && (
-              <div className="text-center mt-4">
-                <button 
-                  className="btn btn-outline-primary" 
-                  onClick={handleLoadMore}
-                >
-                  Tải thêm hình ảnh
-                </button>
-              </div>
-            )}
-            
-            {/* Thông báo đang tải */}
-            {isLoading && (
-              <div className="text-center mt-4">
-                <div className="spinner-border text-primary" role="status">
-                  <span className="visually-hidden">Đang tải...</span>
-                </div>
-                <p className="mt-2">Đang tải hình ảnh...</p>
-              </div>
-            )}
-            
-            {/* Thông báo không có kết quả */}
-            {!isLoading && images.length === 0 && (
-              <div className="alert alert-info text-center" role="alert">
-                Không tìm thấy hình ảnh nào. Vui lòng thử từ khóa khác.
-              </div>
-            )}
-          </div>
-          
-          <div className="modal-footer">
-            <button 
-              type="button" 
-              className="btn btn-secondary" 
-              onClick={onClose}
-            >
-              Đóng
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+              ) : (
+                <>
+                  <Row xs={1} md={2} lg={4} className="g-3">
+                    {myImages.map(image => (
+                      <Col key={image.id}>
+                        <Card className="h-100">
+                          <div 
+                            className="image-container position-relative"
+                            style={{ 
+                              height: '200px', 
+                              overflow: 'hidden',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => handleSelectImage(image)}
+                          >
+                            <Card.Img 
+                              variant="top" 
+                              src={image.url} 
+                              alt={image.description}
+                              style={{ 
+                                objectFit: 'cover',
+                                height: '100%',
+                                width: '100%'
+                              }}
+                            />
+                            
+                            {/* Overlay với các nút actions */}
+                            <div className="position-absolute top-0 end-0 p-2">
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                className="rounded-circle"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteImage(image.id);
+                                }}
+                              >
+                                <i className="bi bi-trash"></i>
+                              </Button>
+                            </div>
+                          </div>
+                          <Card.Body className="p-2">
+                            <Card.Text className="small">
+                              {new Date(image.createdAt).toLocaleString()}
+                            </Card.Text>
+                          </Card.Body>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </>
+              )}
+            </Tab.Pane>
+          </Tab.Content>
+        </Tab.Container>
+      </Modal.Body>
+      
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose}>
+          Đóng
+        </Button>
+      </Modal.Footer>
+    </Modal>
   );
 };
 
