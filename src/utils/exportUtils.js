@@ -14,11 +14,14 @@ export const exportToPDF = async (slides, title = 'Presentation') => {
     
     // Vòng lặp qua từng slide để thêm vào PDF
     for (let i = 0; i < slides.length; i++) {
-      const slideId = slides[i].id;
-      const slideElement = document.getElementById(`slide-preview-${slideId}`);
+      const slide = slides[i];
+      const slideElement = slide.ref || document.getElementById(`slide-preview-${slide.id}`);
       
       // Bỏ qua nếu không tìm thấy phần tử
-      if (!slideElement) continue;
+      if (!slideElement) {
+        console.warn(`Không tìm thấy phần tử cho slide ${slide.id}`);
+        continue;
+      }
       
       // Chuyển đổi phần tử DOM thành canvas
       const canvas = await html2canvas(slideElement, {
@@ -84,11 +87,14 @@ export const exportToPNG = async (slides) => {
   try {
     // Vòng lặp qua từng slide để xuất ra PNG
     for (let i = 0; i < slides.length; i++) {
-      const slideId = slides[i].id;
-      const slideElement = document.getElementById(`slide-preview-${slideId}`);
+      const slide = slides[i];
+      const slideElement = slide.ref || document.getElementById(`slide-preview-${slide.id}`);
       
       // Bỏ qua nếu không tìm thấy phần tử
-      if (!slideElement) continue;
+      if (!slideElement) {
+        console.warn(`Không tìm thấy phần tử cho slide ${slide.id}`);
+        continue;
+      }
       
       // Chuyển đổi phần tử DOM thành canvas với chất lượng cao
       const canvas = await html2canvas(slideElement, {
@@ -124,15 +130,153 @@ export const exportToPNG = async (slides) => {
 };
 
 /**
- * Xuất bài thuyết trình sang PPTX (placeholder - cần thư viện bổ sung)
+ * Xuất bài thuyết trình sang PPTX (sử dụng thư viện pptxgenjs)
  * @param {Array} slides - Mảng các slide cần xuất
  * @param {string} title - Tiêu đề của bài thuyết trình
  */
-export const exportToPPTX = (slides, title) => {
-  // Note: Để xuất PPTX, bạn cần thư viện như pptxgenjs
-  // Đây là phiên bản giả lập
-  console.log(`Đang xuất ${slides.length} slide sang PPTX với tiêu đề: ${title}`);
-  alert(`Chức năng xuất PPTX đang được phát triển. Vui lòng sử dụng PDF hoặc PNG.`);
+export const exportToPPTX = async (slides, title) => {
+  try {
+    // Kiểm tra nếu thư viện pptxgenjs đã được tải
+    if (typeof window.pptxgen === 'undefined') {
+      console.warn('Thư viện pptxgenjs chưa được tải.');
+      alert('Đang tải thư viện cần thiết...');
+      
+      // Tải thư viện pptxgenjs từ CDN
+      await loadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.11.0/dist/pptxgen.bundle.js');
+      
+      // Kiểm tra lại sau khi tải
+      if (typeof window.pptxgen === 'undefined') {
+        throw new Error('Không thể tải thư viện pptxgenjs');
+      }
+    }
+    
+    // Tạo bài thuyết trình mới
+    const pptx = new window.pptxgen();
+    
+    // Thiết lập thuộc tính cho bài thuyết trình
+    pptx.author = 'AI Presentation App';
+    pptx.company = 'AI Presentation App';
+    pptx.revision = '1';
+    pptx.subject = 'Presentation';
+    pptx.title = title;
+    
+    // Vòng lặp qua từng slide để thêm vào PPTX
+    for (let i = 0; i < slides.length; i++) {
+      const slide = slides[i];
+      const slideElement = slide.ref || document.getElementById(`slide-preview-${slide.id}`);
+      
+      // Bỏ qua nếu không tìm thấy phần tử
+      if (!slideElement) {
+        console.warn(`Không tìm thấy phần tử cho slide ${slide.id}`);
+        continue;
+      }
+      
+      // Tạo slide mới
+      const pptxSlide = pptx.addSlide();
+      
+      // Chuyển đổi phần tử DOM thành canvas
+      const canvas = await html2canvas(slideElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        allowTaint: true,
+        backgroundColor: null
+      });
+      
+      // Chuyển canvas thành data URL
+      const imgData = canvas.toDataURL('image/png');
+      
+      // Thêm hình ảnh vào slide
+      pptxSlide.addImage({ data: imgData, x: 0, y: 0, w: '100%', h: '100%' });
+    }
+    
+    // Xuất file PPTX
+    pptx.writeFile({ fileName: `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pptx` });
+    
+    return true;
+  } catch (error) {
+    console.error('Error exporting to PPTX:', error);
+    alert(`Có lỗi khi xuất PPTX: ${error.message}. Vui lòng thử lại hoặc sử dụng định dạng khác.`);
+    return false;
+  }
+};
+
+/**
+ * Tải script từ URL
+ * @param {string} url - URL của script
+ * @returns {Promise} - Promise sẽ resolve khi script được tải xong
+ */
+const loadScript = (url) => {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = url;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+};
+
+/**
+ * Tạo và chia sẻ link trực tuyến
+ * @param {string} presentationId - ID bài thuyết trình
+ * @param {string} accessType - Loại quyền truy cập ('view' hoặc 'edit')
+ * @returns {Promise<Object>} - Thông tin liên kết
+ */
+export const createShareableLink = async (presentationId, accessType = 'view') => {
+  // Giả lập tạo link chia sẻ
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  const token = Math.random().toString(36).substring(2, 15);
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // Hết hạn sau 7 ngày
+  
+  // Tạo URL chia sẻ
+  const shareUrl = `${window.location.origin}/shared/${presentationId}?token=${token}&type=${accessType}`;
+  
+  // Lưu thông tin vào localStorage
+  try {
+    const shareLinks = JSON.parse(localStorage.getItem(`share_links_${presentationId}`) || '[]');
+    shareLinks.push({
+      url: shareUrl,
+      token,
+      accessType,
+      expiresAt,
+      createdAt: Date.now()
+    });
+    localStorage.setItem(`share_links_${presentationId}`, JSON.stringify(shareLinks));
+  } catch (error) {
+    console.error('Error saving share link:', error);
+  }
+  
+  return {
+    url: shareUrl,
+    expiresAt,
+    accessType
+  };
+};
+
+/**
+ * Chia sẻ bài thuyết trình qua email
+ * @param {string} email - Địa chỉ email
+ * @param {string} presentationId - ID bài thuyết trình
+ * @param {string} title - Tiêu đề bài thuyết trình
+ * @returns {Promise<boolean>} - Kết quả chia sẻ
+ */
+export const shareViaEmail = async (email, presentationId, title) => {
+  try {
+    // Tạo link chia sẻ
+    const shareLink = await createShareableLink(presentationId, 'view');
+    
+    // Giả lập gửi email
+    console.log(`Chia sẻ bài thuyết trình "${title}" tới ${email} với link: ${shareLink.url}`);
+    
+    // Giả lập độ trễ gửi email
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    return true;
+  } catch (error) {
+    console.error('Error sharing via email:', error);
+    return false;
+  }
 };
 
 /**
@@ -204,24 +348,14 @@ export const removeSlidePreview = (previewElement) => {
 };
 
 /**
- * Tạo bản xem trước và xuất theo định dạng yêu cầu
+ * Xuất tất cả slide và chuẩn bị DOM
  * @param {Array} slides - Mảng các slide cần xuất
  * @param {Array} templates - Mảng các template
  * @param {string} title - Tiêu đề bài thuyết trình
  * @param {string} format - Định dạng xuất (pdf, png, pptx)
  */
 export const exportPresentation = async (slides, templates, title, format) => {
-  // Tạo bản xem trước cho mỗi slide
-  const previewElements = [];
-  
   try {
-    // Tạo bản xem trước cho mỗi slide
-    for (const slide of slides) {
-      const template = templates.find(t => t.id === slide.template) || templates[0];
-      const previewElement = createSlidePreview(slide, template);
-      previewElements.push(previewElement);
-    }
-    
     // Xuất theo định dạng yêu cầu
     let result = false;
     switch (format) {
@@ -232,7 +366,7 @@ export const exportPresentation = async (slides, templates, title, format) => {
         result = await exportToPNG(slides);
         break;
       case 'pptx':
-        result = exportToPPTX(slides, title);
+        result = await exportToPPTX(slides, title);
         break;
       default:
         result = await exportToPDF(slides, title);
@@ -243,8 +377,5 @@ export const exportPresentation = async (slides, templates, title, format) => {
     console.error('Error during export:', error);
     alert('Có lỗi khi xuất bài thuyết trình. Vui lòng thử lại.');
     return false;
-  } finally {
-    // Xóa tất cả các bản xem trước đã tạo
-    previewElements.forEach(element => removeSlidePreview(element));
   }
 };
