@@ -29,7 +29,7 @@ export const DEFAULT_POSITIONS = {
     const defaultContent = getDefaultContent(type);
     const defaultPosition = DEFAULT_POSITIONS[type] || DEFAULT_POSITIONS.text;
     
-    return {
+    const element = {
       id: generateElementId(type),
       type,
       content: options.content || defaultContent,
@@ -41,8 +41,25 @@ export const DEFAULT_POSITIONS = {
         width: defaultPosition.width, 
         height: defaultPosition.height 
       },
-      style: options.style || {}
+      style: options.style || {},
+      zIndex: options.zIndex || 1
     };
+    
+    // Xử lý các loại phần tử đặc biệt
+    if (type === 'chart' && options.chartType) {
+      element.chartType = options.chartType;
+      element.data = options.data || getChartData(options.chartType).datasets[0].data;
+      element.labels = options.labels || getChartData(options.chartType).labels;
+      element.colors = options.colors || ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
+      element.title = options.title || 'Biểu đồ';
+      element.showLegend = options.showLegend !== undefined ? options.showLegend : true;
+      element.showGrid = options.showGrid !== undefined ? options.showGrid : true;
+    } else if (type === 'image') {
+      element.url = options.url || options.content || defaultContent;
+      element.alt = options.alt || 'Hình ảnh';
+    }
+    
+    return element;
   };
   
   /**
@@ -136,6 +153,7 @@ export const DEFAULT_POSITIONS = {
   export const getChartData = (chartType) => {
     switch (chartType) {
       case 'bar-chart':
+      case 'bar':
         return {
           labels: ['A', 'B', 'C', 'D'],
           datasets: [
@@ -147,6 +165,7 @@ export const DEFAULT_POSITIONS = {
           ]
         };
       case 'line-chart':
+      case 'line':
         return {
           labels: ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'],
           datasets: [
@@ -159,6 +178,7 @@ export const DEFAULT_POSITIONS = {
           ]
         };
       case 'pie-chart':
+      case 'pie':
         return {
           labels: ['Red', 'Blue', 'Yellow'],
           datasets: [
@@ -198,46 +218,205 @@ export const DEFAULT_POSITIONS = {
       const parts = line.split(',');
       if (parts.length >= 2) {
         labels.push(parts[0].trim());
-        data.push(parseFloat(parts[1].trim()) || 0);
+        const value = parseFloat(parts[1].trim());
+        if (!isNaN(value)) {
+          data.push(value);
+        } else {
+          data.push(0);
+        }
       }
     });
     
-    if (labels.length === 0) {
+    // Sử dụng dữ liệu mặc định nếu không phân tích được
+    if (labels.length === 0 || data.length === 0) {
       return getChartData(chartType);
     }
     
-    // Tạo dữ liệu biểu đồ
-    switch (chartType) {
-      case 'bar-chart':
-      case 'line-chart':
-        return {
-          labels,
-          datasets: [
-            {
-              label: 'Dữ liệu',
-              data,
-              backgroundColor: chartType === 'bar-chart' 
-                ? ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'] 
-                : '#36A2EB',
-              borderColor: chartType === 'line-chart' ? '#36A2EB' : undefined,
-              tension: chartType === 'line-chart' ? 0.1 : undefined
-            }
-          ]
-        };
-      case 'pie-chart':
-      case 'doughnut-chart':
-        return {
-          labels,
-          datasets: [
-            {
-              data,
-              backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
-            }
-          ]
-        };
-      default:
-        return getChartData(chartType);
+    // Tạo dữ liệu biểu đồ phù hợp
+    const chartData = getChartData(chartType);
+    chartData.labels = labels;
+    chartData.datasets[0].data = data;
+    
+    return chartData;
+  };
+  
+  /**
+   * Chuyển đổi dữ liệu biểu đồ từ AI sang định dạng biểu đồ
+   * @param {object} aiData - Dữ liệu biểu đồ từ API AI
+   * @returns {object} - Dữ liệu biểu đồ định dạng chuẩn
+   */
+  export const convertAIChartData = (aiData) => {
+    if (!aiData) return null;
+
+    const chartType = aiData.chartType || 'bar';
+    const title = aiData.title || 'Biểu đồ';
+    
+    // Dữ liệu mẫu từ AI có thể có định dạng khác nhau, cần chuẩn hóa
+    const data = [];
+    const labels = [];
+    const colors = [
+      '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8E24AA',
+      '#16A085', '#F39C12', '#D35400', '#2C3E50', '#7F8C8D'
+    ];
+    
+    if (Array.isArray(aiData.data)) {
+      aiData.data.forEach(item => {
+        if (item.name && item.value !== undefined) {
+          labels.push(item.name);
+          data.push(item.value);
+        } else if (item.label && item.value !== undefined) {
+          labels.push(item.label);
+          data.push(item.value);
+        }
+      });
     }
+    
+    if (labels.length === 0 || data.length === 0) {
+      return getChartData(chartType);
+    }
+    
+    return {
+      chartType,
+      title,
+      labels,
+      data,
+      colors: aiData.colors || colors.slice(0, labels.length)
+    };
+  };
+  
+  /**
+   * Chuyển đổi dữ liệu mô hình từ dữ liệu thô
+   * @param {object} rawData - Dữ liệu thô
+   * @returns {object} - Dữ liệu đã xử lý
+   */
+  export const convertAIModelData = (rawData) => {
+    if (!rawData || !rawData.slides) {
+      return null;
+    }
+
+    // Tạo dữ liệu chuẩn từ dữ liệu thô
+    return {
+      title: rawData.title || 'Bài thuyết trình mới',
+      slides: rawData.slides.map(slide => ({
+        id: slide.id || Date.now() + Math.floor(Math.random() * 1000),
+        title: slide.title || '',
+        content: slide.content || '',
+        notes: slide.notes || '',
+        template: slide.template || 'default',
+        elements: slide.elements || []
+      }))
+    };
+  };
+  
+  /**
+   * Phân tích nội dung văn bản để xác định loại dữ liệu (ví dụ: có phải danh sách, số liệu, v.v.)
+   * @param {string} text - Văn bản cần phân tích
+   * @returns {object} - Kết quả phân tích
+   */
+  export const analyzeTextContent = (text) => {
+    if (!text) return { type: 'empty' };
+    
+    const lines = text.split('\n').filter(line => line.trim());
+    const result = {
+      type: 'text',
+      hasList: false,
+      hasNumbers: false,
+      wordCount: 0,
+      isBulletPoints: false
+    };
+    
+    // Đếm số từ
+    result.wordCount = text.split(/\s+/).filter(word => word.trim()).length;
+    
+    // Kiểm tra danh sách
+    const bulletPointRegex = /^\s*[\-\*\•]\s+/;
+    const numberedListRegex = /^\s*\d+[\.\)]\s+/;
+    
+    let bulletPoints = 0;
+    let numberedItems = 0;
+    
+    lines.forEach(line => {
+      if (bulletPointRegex.test(line)) {
+        bulletPoints++;
+      } else if (numberedListRegex.test(line)) {
+        numberedItems++;
+      }
+      
+      // Kiểm tra có số liệu không
+      const hasNumbers = /\d+([,.]\d+)?\s*(%|phần trăm|tỷ lệ)?/.test(line);
+      if (hasNumbers) {
+        result.hasNumbers = true;
+      }
+    });
+    
+    if (bulletPoints > 0 && bulletPoints / lines.length > 0.5) {
+      result.hasList = true;
+      result.isBulletPoints = true;
+    } else if (numberedItems > 0 && numberedItems / lines.length > 0.5) {
+      result.hasList = true;
+      result.isBulletPoints = false;
+    }
+    
+    // Kiểm tra khả năng là dữ liệu biểu đồ
+    const potentialChartData = text.split('\n')
+      .filter(line => line.trim())
+      .filter(line => /^.+:\s*\d+([,.]\d+)?$/.test(line) || /^.+,\s*\d+([,.]\d+)?$/.test(line));
+    
+    if (potentialChartData.length >= 3 && potentialChartData.length / lines.length > 0.5) {
+      result.type = 'chart-data';
+    }
+    
+    return result;
+  };
+  
+  /**
+   * Tạo đề xuất biểu đồ dựa trên nội dung văn bản
+   * @param {string} text - Nội dung văn bản
+   * @returns {object|null} - Đề xuất biểu đồ nếu phù hợp, null nếu không
+   */
+  export const suggestChartFromText = (text) => {
+    const analysis = analyzeTextContent(text);
+    
+    if (analysis.type === 'chart-data' || (analysis.hasList && analysis.hasNumbers)) {
+      const lines = text.split('\n').filter(line => line.trim());
+      const chartData = {
+        labels: [],
+        data: [],
+        chartType: 'bar'
+      };
+      
+      // Ưu tiên xử lý dòng có định dạng "tên: giá trị" hoặc "tên, giá trị"
+      lines.forEach(line => {
+        let match = line.match(/^(.+?):\s*(\d+([,.]\d+)?)$/);
+        if (!match) {
+          match = line.match(/^(.+?),\s*(\d+([,.]\d+)?)$/);
+        }
+        
+        if (match) {
+          const label = match[1].trim();
+          const value = parseFloat(match[2].replace(',', '.'));
+          
+          if (!isNaN(value)) {
+            chartData.labels.push(label);
+            chartData.data.push(value);
+          }
+        }
+      });
+      
+      // Nếu xử lý được dữ liệu, đề xuất biểu đồ
+      if (chartData.labels.length >= 2 && chartData.data.length >= 2) {
+        // Đề xuất loại biểu đồ phù hợp
+        if (chartData.labels.length <= 3) {
+          chartData.chartType = 'pie'; // Ít dữ liệu, đề xuất biểu đồ tròn
+        } else if (chartData.labels.length >= 6) {
+          chartData.chartType = 'line'; // Nhiều dữ liệu, đề xuất biểu đồ đường
+        }
+        
+        return chartData;
+      }
+    }
+    
+    return null;
   };
   
   /**
@@ -246,15 +425,8 @@ export const DEFAULT_POSITIONS = {
    * @returns {object} - Kích thước đã tính
    */
   export const calculateSlideExportSize = (slideSize = { width: 1280, height: 720 }) => {
-    const { width, height } = slideSize;
-    const aspectRatio = width / height;
+    const width = slideSize.width || 1280;
+    const height = slideSize.height || 720;
     
-    // Kích thước mục tiêu cho việc xuất
-    const targetWidth = 1200;
-    const targetHeight = targetWidth / aspectRatio;
-    
-    return {
-      width: targetWidth,
-      height: targetHeight
-    };
+    return { width, height };
   };
