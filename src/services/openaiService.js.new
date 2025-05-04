@@ -615,4 +615,4 @@ function createFallbackSlides(content, slideCount) {
   }
   
   return slides;
-}
+} 
