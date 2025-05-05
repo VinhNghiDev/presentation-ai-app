@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { exportToPDF, exportToPNG, exportPresentation } from '../utils/exportUtils';
-import AIPresentation from '../components/AIPresentation/AIPresentation';
+import { generatePresentation } from '../services/aiService';
 import { enhanceSlideContent } from '../services/openaiService';
 import CollaborationPanel from '../components/Collaboration/CollaborationPanel';
 import IntegrationPanel from '../components/Integration/IntegrationPanel';
 import SharingPanel from '../components/Sharing/SharingPanel';
+import AIPresentation from '../components/AIPresentation/AIPresentation';
 
 // Mẫu thiết kế mặc định
 const templates = [
@@ -102,12 +103,20 @@ const EditorPage = () => {
   const queryParams = new URLSearchParams(location.search);
   const presentationId = queryParams.get('id');
   const slidePreviewRefs = useRef({});
+  const slideComponentRef = useRef(null);
 
   // States
   const [slides, setSlides] = useState([]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiTopic, setAiTopic] = useState('');
+  const [aiStyle, setAiStyle] = useState('professional');
+  const [aiSlideCount, setAiSlideCount] = useState(8);
+  const [aiPurpose, setAiPurpose] = useState('business');
+  const [aiAudience, setAiAudience] = useState('general');
+  const [aiLanguage, setAiLanguage] = useState('vi');
+  const [aiIncludeCharts, setAiIncludeCharts] = useState(true);
+  const [aiIncludeImages, setAiIncludeImages] = useState(true);
   const [presentationTitle, setPresentationTitle] = useState('Bài thuyết trình mới');
   const [currentTemplate, setCurrentTemplate] = useState(templates[0]);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
@@ -134,12 +143,69 @@ const EditorPage = () => {
   const [showAIEnhanceDialog, setShowAIEnhanceDialog] = useState(false);
   const [enhancementType, setEnhancementType] = useState('content');
   const [isEnhancing, setIsEnhancing] = useState(false);
-  const [enhanceApiKey, setEnhanceApiKey] = useState('');
   const [showCollaborationPanel, setShowCollaborationPanel] = useState(false);
   const [showIntegrationPanel, setShowIntegrationPanel] = useState(false);
   const [collaborators, setCollaborators] = useState([]);
   const [hasNewComments, setHasNewComments] = useState(false);
   const [showSharingPanel, setShowSharingPanel] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [featureTipShown, setFeatureTipShown] = useState(false);
+  // State cho quản lý danh sách presentations
+  const [presentations, setPresentations] = useState([]);
+  const [currentPresentation, setCurrentPresentation] = useState(null);
+  const [isEditor, setIsEditor] = useState(true);
+  
+  // Khai báo hàm showFeatureTip với useCallback
+  const showFeatureTip = useCallback(() => {
+    if (!featureTipShown) {
+      setFeatureTipShown(true);
+      // Thông báo tính năng mới đã được cải thiện sau 2 giây
+      setTimeout(() => {
+        const notification = document.createElement('div');
+        notification.className = 'notification';
+        notification.innerHTML = `
+          <div class="notification-content">
+            <div class="notification-header">
+              <i class="bi bi-stars"></i>
+              <span>Tính năng mới!</span>
+            </div>
+            <div class="notification-body">
+              Chất lượng bài thuyết trình AI đã được nâng cấp với nội dung chuyên sâu, 
+              số liệu thị trường, và case studies thực tế.
+            </div>
+            <button class="btn btn-sm btn-outline-primary mt-2">Thử ngay</button>
+          </div>
+        `;
+        document.body.appendChild(notification);
+        
+        // Hiển thị notification với hiệu ứng
+        setTimeout(() => {
+          notification.classList.add('show');
+          
+          // Thêm sự kiện khi click vào nút thử ngay
+          const button = notification.querySelector('button');
+          button.addEventListener('click', () => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+              document.body.removeChild(notification);
+              setAiDialogOpen(true);
+            }, 300);
+          });
+          
+          // Tự động ẩn sau 10 giây
+          setTimeout(() => {
+            notification.classList.remove('show');
+            setTimeout(() => {
+              if (document.body.contains(notification)) {
+                document.body.removeChild(notification);
+              }
+            }, 300);
+          }, 10000);
+        }, 100);
+      }, 2000);
+    }
+  }, [featureTipShown, setAiDialogOpen]);
 
   useEffect(() => {
     // Khởi tạo bài thuyết trình
@@ -163,14 +229,10 @@ const EditorPage = () => {
     } else {
       initNewPresentation();
     }
-  }, [presentationId]);
-
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem('openai_api_key');
-    if (savedApiKey) {
-      setEnhanceApiKey(savedApiKey);
-    }
-  }, []);
+    
+    // Hiển thị thông báo về tính năng mới
+    showFeatureTip();
+  }, [presentationId, showFeatureTip]);
 
   const initNewPresentation = () => {
     setSlides([{
@@ -216,54 +278,132 @@ const EditorPage = () => {
     setSlides(updatedSlides);
   };
 
-  const handleAIGenerate = (aiData) => {
-    if (!aiData || !aiData.slides || aiData.slides.length === 0) {
+  const handleAIGenerate = async () => {
+    if (!aiTopic) {
+      alert("Vui lòng nhập chủ đề cho bài thuyết trình");
       return;
     }
     
-    // Cập nhật tiêu đề bài thuyết trình
-    setPresentationTitle(aiData.title || 'Bài thuyết trình mới');
+    setIsGenerating(true);
+    setProgress(0);
+    setGenerationStatus("Đang chuẩn bị tạo bài thuyết trình...");
     
-    // Cài đặt các slide mới
-    setSlides(aiData.slides);
-    setCurrentSlideIndex(0);
-    
-    // Đóng dialog AI
-    setAiDialogOpen(false);
-    
-    // Hiển thị thông báo thành công
-    setSaveStatus('Bài thuyết trình đã được tạo thành công');
-    setTimeout(() => setSaveStatus(''), 2000);
+    try {
+      // Tạo đối tượng bài thuyết trình mới
+      const newPresentation = {
+        id: Date.now(),
+        title: aiTopic,
+        slides: [],
+        lastModified: Date.now()
+      };
+      
+      setGenerationStatus("Đang gửi yêu cầu đến AI...");
+      setProgress(10);
+      
+      // Gọi API để tạo bài thuyết trình
+      const options = {
+        topic: aiTopic,
+        style: aiStyle,
+        slides: aiSlideCount,
+        language: aiLanguage,
+        purpose: aiPurpose,
+        audience: aiAudience,
+        includeCharts: aiIncludeCharts,
+        includeImages: aiIncludeImages
+      };
+      
+      const generatedPresentation = await generatePresentation(options);
+      
+      if (!generatedPresentation) {
+        throw new Error('Không nhận được dữ liệu bài thuyết trình');
+      }
+      
+      setGenerationStatus("Đã nhận được nội dung. Đang xử lý slides...");
+      setProgress(50);
+      
+      // Chuyển đổi sang định dạng slide của ứng dụng
+      try {
+        // Kiểm tra xem slideComponentRef.current có tồn tại không
+        if (!slideComponentRef.current) {
+          throw new Error('Không tìm thấy thành phần AIPresentation. Vui lòng tải lại trang.');
+        }
+        
+        // Truyền các tùy chọn hiển thị cho quá trình chuyển đổi
+        const convertOptions = {
+          style: aiStyle,
+          includeImages: aiIncludeImages,
+          includeCharts: aiIncludeCharts,
+          topic: aiTopic
+        };
+        
+        // Gọi hàm chuyển đổi từ AIPresentation
+        const convertedSlides = await slideComponentRef.current.convertToAppSlides(generatedPresentation, convertOptions);
+        
+        if (!Array.isArray(convertedSlides)) {
+          throw new Error('Lỗi chuyển đổi slides: Kết quả không phải là mảng');
+        }
+        
+        console.log("Đã chuyển đổi thành công", convertedSlides.length, "slides");
+        newPresentation.slides = convertedSlides;
+        
+        // Lưu và cập nhật giao diện
+        setGenerationStatus("Đang lưu bài thuyết trình...");
+        setPresentations(prev => [newPresentation, ...prev]);
+        setCurrentPresentation(newPresentation);
+        setIsEditor(true);
+        
+        // Lưu vào localStorage
+        const savedPresentations = JSON.parse(localStorage.getItem('presentations') || '[]');
+        savedPresentations.unshift(newPresentation);
+        localStorage.setItem('presentations', JSON.stringify(savedPresentations));
+        
+        setGenerationStatus("Bài thuyết trình đã được tạo thành công!");
+        console.log("Hoàn tất quá trình tạo bài thuyết trình");
+      } catch (convertError) {
+        console.error("Lỗi khi chuyển đổi slides:", convertError);
+        setGenerationStatus("Đã xảy ra lỗi khi xử lý dữ liệu slide");
+        alert("Không thể xử lý dữ liệu slide. Chi tiết lỗi: " + convertError.message);
+      }
+    } catch (error) {
+      console.error("Lỗi tổng thể khi tạo bài thuyết trình:", error);
+      setGenerationStatus("Đã xảy ra lỗi khi tạo bài thuyết trình");
+      alert("Đã xảy ra lỗi: " + (error.message || "Không thể tạo bài thuyết trình"));
+    } finally {
+      setIsGenerating(false);
+      setAiDialogOpen(false); // Đóng dialog sau khi hoàn thành
+    }
   };
   
   const handleEnhanceContent = async () => {
-    if (!enhanceApiKey || !enhanceApiKey.startsWith('sk-')) {
-      alert('Vui lòng nhập OpenAI API Key hợp lệ (bắt đầu bằng sk-)');
-      return;
-    }
-    
     setIsEnhancing(true);
     
     try {
-      // Lưu API key vào localStorage
-      localStorage.setItem('openai_api_key', enhanceApiKey);
-      
+      // Xử lý cải thiện nội dung bằng AI mà không cần API key từ người dùng
       if (enhancementType === 'content') {
         // Nâng cao nội dung slide hiện tại
         const currentSlide = slides[currentSlideIndex];
         if (currentSlide) {
           setSaveStatus('Đang cải thiện nội dung slide...');
-          const enhancedContent = await enhanceSlideContent(currentSlide.content, enhanceApiKey);
           
-          const updatedSlides = [...slides];
-          updatedSlides[currentSlideIndex] = {
-            ...currentSlide,
-            content: enhancedContent
-          };
-          
-          setSlides(updatedSlides);
-          setSaveStatus('Nội dung đã được cải thiện thành công');
-          setTimeout(() => setSaveStatus(''), 2000);
+          try {
+            // Gọi API để cải thiện nội dung - sử dụng API key hệ thống trong service
+            console.log("EditorPage.js: Gọi enhanceSlideContent cho nội dung:", currentSlide.content?.length || 0, "ký tự");
+            const enhancedContent = await enhanceSlideContent(currentSlide.content);
+            console.log("EditorPage.js: Đã nhận được nội dung được cải thiện:", enhancedContent?.length || 0, "ký tự");
+            
+            const updatedSlides = [...slides];
+            updatedSlides[currentSlideIndex] = {
+              ...currentSlide,
+              content: enhancedContent
+            };
+            
+            setSlides(updatedSlides);
+            setSaveStatus('Nội dung đã được cải thiện thành công');
+            setTimeout(() => setSaveStatus(''), 2000);
+          } catch (error) {
+            console.error('Lỗi khi cải thiện nội dung:', error);
+            alert('Không thể cải thiện nội dung slide. Hệ thống sẽ thử lại sau.');
+          }
         }
       } else if (enhancementType === 'all') {
         // Nâng cao nội dung tất cả slide
@@ -277,10 +417,22 @@ const EditorPage = () => {
           }
           
           setSaveStatus(`Đang cải thiện slide ${i+1}/${updatedSlides.length}...`);
-          updatedSlides[i] = {
-            ...slide,
-            content: await enhanceSlideContent(slide.content, enhanceApiKey)
-          };
+          
+          try {
+            // Gọi API để cải thiện nội dung - sử dụng API key hệ thống trong service
+            console.log(`EditorPage.js: Cải thiện slide ${i+1} với nội dung:`, slide.content?.length || 0, "ký tự");
+            const enhancedContent = await enhanceSlideContent(slide.content);
+            console.log(`EditorPage.js: Đã nhận được nội dung cải thiện cho slide ${i+1}:`, enhancedContent?.length || 0, "ký tự");
+            
+            updatedSlides[i] = {
+              ...slide,
+              content: enhancedContent
+            };
+          } catch (error) {
+            console.error(`Lỗi khi cải thiện slide ${i+1}:`, error);
+            // Tiếp tục với slide tiếp theo
+            continue;
+          }
         }
         
         setSlides(updatedSlides);
@@ -596,8 +748,48 @@ const EditorPage = () => {
     if (!slides[currentSlideIndex] || !slides[currentSlideIndex].elements) return null;
     
     return slides[currentSlideIndex].elements.map(element => {
+      // Đảm bảo element có position và size, nếu không thì cung cấp giá trị mặc định
+      const elementPosition = element.position || { x: 0, y: 0 };
+      const elementSize = element.size || { width: 100, height: 100 };
+      
       if (element.type === 'image') {
-        return renderImageElement(element);
+        return (
+          <div
+            key={element.id}
+            className={`position-absolute ${selectedElementId === element.id ? 'element-selected' : ''}`}
+            style={{
+              left: elementPosition.x + 'px',
+              top: elementPosition.y + 'px',
+              width: elementSize.width + 'px',
+              height: elementSize.height + 'px',
+              cursor: selectedElementId === element.id ? 'move' : 'pointer',
+              zIndex: element.zIndex || 1,
+              boxShadow: selectedElementId === element.id ? '0 0 0 2px #4285f4' : 'none'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              selectElement(element.id);
+            }}
+            onMouseDown={(e) => handleDragStart(e, element.id)}
+          >
+            <img
+              src={element.url}
+              alt={element.alt || 'Slide image'}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain'
+              }}
+              draggable="false"
+            />
+            
+            {selectedElementId === element.id && (
+              <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, element.id)}>
+                <i className="bi bi-arrows-angle-expand"></i>
+              </div>
+            )}
+          </div>
+        );
       } 
       else if (element.type === 'text') {
         // Đảm bảo style tồn tại
@@ -615,9 +807,9 @@ const EditorPage = () => {
             className="draggable-element text-element"
             style={{
               position: 'absolute',
-              left: `${element.position.x}px`,
-              top: `${element.position.y}px`,
-              minWidth: `${element.size.width}px`,
+              left: `${elementPosition.x}px`,
+              top: `${elementPosition.y}px`,
+              minWidth: `${elementSize.width}px`,
               cursor: element.isEditing ? 'text' : 'move',
               border: selectedElementId === element.id ? '2px solid #1a73e8' : 
                      element.isDragging ? '2px dashed #1a73e8' : 
@@ -702,7 +894,87 @@ const EditorPage = () => {
         );
       }
       else if (element.type === 'chart') {
-        return renderChartElement(element);
+        return (
+          <div
+            key={element.id}
+            className={`position-absolute chart-element ${selectedElementId === element.id ? 'element-selected' : ''}`}
+            style={{
+              left: elementPosition.x + 'px',
+              top: elementPosition.y + 'px',
+              width: elementSize.width + 'px',
+              height: elementSize.height + 'px',
+              cursor: selectedElementId === element.id ? 'move' : 'pointer',
+              zIndex: element.zIndex || 1,
+              backgroundColor: 'white',
+              border: '1px solid #e0e0e0',
+              borderRadius: '4px',
+              padding: '10px',
+              boxShadow: selectedElementId === element.id ? '0 0 0 2px #4285f4' : 'none',
+              overflow: 'hidden'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              selectElement(element.id);
+            }}
+            onDoubleClick={() => {
+              openChartEditor(element);
+            }}
+            onMouseDown={(e) => handleDragStart(e, element.id)}
+          >
+            <div style={{ width: '100%', height: '100%' }}>
+              <div className="chart-title" style={{ textAlign: 'center', marginBottom: '10px' }}>
+                {element.title || "Biểu đồ"}
+              </div>
+              {element.data && element.data.length > 0 && (
+                <div className="bar-chart">
+                  {element.data.map((item, index) => (
+                    <div key={index} className="bar-chart-item">
+                      <div className="bar-label">{item.name}</div>
+                      <div className="bar-container">
+                        <div 
+                          className="bar" 
+                          style={{ 
+                            width: `${(item.value / Math.max(...element.data.map(d => d.value))) * 100}%`,
+                            backgroundColor: '#4285F4'
+                          }}
+                        >
+                          <span className="bar-value">{item.value}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {selectedElementId === element.id && (
+              <>
+                <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, element.id)}>
+                  <i className="bi bi-arrows-angle-expand"></i>
+                </div>
+                <div 
+                  className="edit-chart-button"
+                  style={{
+                    position: 'absolute',
+                    top: '5px',
+                    right: '5px',
+                    background: 'rgba(255,255,255,0.8)',
+                    borderRadius: '4px',
+                    padding: '2px 5px',
+                    fontSize: '12px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openChartEditor(element);
+                  }}
+                >
+                  <i className="bi bi-pencil"></i> Edit
+                </div>
+              </>
+            )}
+          </div>
+        );
       }
       return null;
     });
@@ -1030,7 +1302,8 @@ const EditorPage = () => {
   // Cập nhật hàm render biểu đồ
   const renderChartElement = (element) => {
     const colors = element.colors || [
-      '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8E24AA'
+      '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8E24AA',
+      '#16A085', '#F39C12', '#D35400', '#2C3E50', '#7F8C8D'
     ];
     
     const renderChart = () => {
@@ -1263,7 +1536,31 @@ const EditorPage = () => {
         }}
         onMouseDown={(e) => handleDragStart(e, element.id)}
       >
-        {renderChart()}
+        <div style={{ width: '100%', height: '100%' }}>
+          <div className="chart-title" style={{ textAlign: 'center', marginBottom: '10px' }}>
+            {element.title || "Biểu đồ"}
+          </div>
+          {element.data && element.data.length > 0 && (
+            <div className="bar-chart">
+              {element.data.map((item, index) => (
+                <div key={index} className="bar-chart-item">
+                  <div className="bar-label">{item.name}</div>
+                  <div className="bar-container">
+                    <div 
+                      className="bar" 
+                      style={{ 
+                        width: `${(item.value / Math.max(...element.data.map(d => d.value))) * 100}%`,
+                        backgroundColor: '#4285F4'
+                      }}
+                    >
+                      <span className="bar-value">{item.value}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         
         {selectedElementId === element.id && (
           <>
@@ -1519,6 +1816,15 @@ const EditorPage = () => {
     handleSave();
   };
 
+  // Gọi hàm hiển thị tooltip khi component mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      showFeatureTip();
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [showFeatureTip]);
+
   return (
     <div className="d-flex flex-column vh-100">
       {/* Header */}
@@ -1541,21 +1847,12 @@ const EditorPage = () => {
               <span className="text-success me-3">{saveStatus}</span>
             )}
             <button
-              className="btn btn-primary me-2"
+              className="btn btn-outline-primary me-2 d-flex align-items-center"
               onClick={() => setAiDialogOpen(true)}
               disabled={isGenerating}
             >
-              {isGenerating ? (
-                <>
-                  <i className="bi bi-hourglass-split me-1"></i>
-                  <span>Đang tạo...</span>
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-magic me-1"></i>
-                  <span>Tạo với AI</span>
-                </>
-              )}
+              <i className="bi bi-stars me-1"></i>
+              Tạo với AI
             </button>
             <button 
               className="btn btn-outline-secondary me-2"
@@ -1894,13 +2191,19 @@ const EditorPage = () => {
       </div>
 
       {/* AI Dialog */}
-      {aiDialogOpen && (
-        <AIPresentation 
-          onGenerate={handleAIGenerate}
-          onClose={() => setAiDialogOpen(false)}
-        />
-      )}
-
+      <AIPresentation 
+        isVisible={aiDialogOpen}
+        onGenerate={(presentationData) => {
+          setAiDialogOpen(false);
+          if (presentationData && presentationData.slides) {
+            setSlides(presentationData.slides);
+            setPresentationTitle(presentationData.title);
+            setCurrentSlideIndex(0);
+          }
+        }}
+        onClose={() => setAiDialogOpen(false)}
+      />
+      
       {/* Collaboration Panel */}
       {showCollaborationPanel && (
         <CollaborationPanel
@@ -1934,68 +2237,123 @@ const EditorPage = () => {
       {/* Dialog cải thiện nội dung bằng AI */}
       {showAIEnhanceDialog && (
         <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-lg">
             <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Cải thiện nội dung với AI</h5>
+              <div className="modal-header bg-info text-white">
+                <h5 className="modal-title"><i className="bi bi-stars me-2"></i>Nâng cao nội dung với AI</h5>
                 <button
                   type="button"
-                  className="btn-close"
+                  className="btn-close btn-close-white"
                   onClick={() => setShowAIEnhanceDialog(false)}
                   disabled={isEnhancing}
                 ></button>
               </div>
               <div className="modal-body">
-                <div className="alert alert-info mb-3">
-                  <h6 className="alert-heading"><i className="bi bi-info-circle me-2"></i>Hướng dẫn sử dụng</h6>
-                  <p>Chức năng này sẽ cải thiện nội dung slide, làm cho chúng ngắn gọn, súc tích và dễ hiểu hơn bằng cách sử dụng AI.</p>
-                  <ol className="mb-0">
-                    <li>Chọn phạm vi cải thiện (slide hiện tại hoặc tất cả)</li>
-                    <li>Nhập OpenAI API Key của bạn (bắt đầu bằng sk-...)</li>
-                    <li>Nhấn nút "Cải thiện" và đợi quá trình hoàn tất</li>
-                  </ol>
-                  <hr />
-                  <p className="mb-0"><i className="bi bi-key me-2"></i>Để sử dụng tính năng này, bạn cần có <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API Key</a>.</p>
+                <div className="alert alert-info mb-4">
+                  <div className="d-flex">
+                    <i className="bi bi-lightbulb-fill fs-4 me-3 mt-1"></i>
+                    <div>
+                      <h6 className="mb-2">Cải thiện nội dung chỉ với một cú nhấp chuột</h6>
+                      <p className="mb-0">Công nghệ AI sẽ tự động phân tích và cải thiện nội dung slide, giúp chúng trở nên ngắn gọn, súc tích và dễ hiểu hơn. Hoàn toàn tự động, không cần nhập thông tin bổ sung.</p>
+                    </div>
+                  </div>
                 </div>
                 
-                <div className="mb-3">
-                  <label className="form-label">Cải thiện</label>
-                  <select
-                    className="form-select"
-                    value={enhancementType}
-                    onChange={(e) => setEnhancementType(e.target.value)}
-                    disabled={isEnhancing}
-                  >
-                    <option value="content">Chỉ slide hiện tại</option>
-                    <option value="all">Tất cả các slide</option>
-                  </select>
+                <div className="card border-light mb-4">
+                  <div className="card-body">
+                    <h6 className="card-title mb-3">Phạm vi cải thiện</h6>
+                    
+                    <div className="d-flex justify-content-center">
+                      <div className="btn-group" role="group" style={{ width: '80%' }}>
+                        <input
+                          type="radio"
+                          className="btn-check"
+                          name="enhancementType"
+                          id="enhanceCurrentSlide"
+                          value="content"
+                          checked={enhancementType === 'content'}
+                          onChange={(e) => setEnhancementType(e.target.value)}
+                          disabled={isEnhancing}
+                          autoComplete="off"
+                        />
+                        <label className="btn btn-outline-primary" htmlFor="enhanceCurrentSlide">
+                          <i className="bi bi-file-earmark-text me-2"></i>
+                          Slide hiện tại
+                        </label>
+                        
+                        <input
+                          type="radio"
+                          className="btn-check"
+                          name="enhancementType"
+                          id="enhanceAllSlides"
+                          value="all"
+                          checked={enhancementType === 'all'}
+                          onChange={(e) => setEnhancementType(e.target.value)}
+                          disabled={isEnhancing}
+                          autoComplete="off"
+                        />
+                        <label className="btn btn-outline-primary" htmlFor="enhanceAllSlides">
+                          <i className="bi bi-files me-2"></i>
+                          Tất cả slide
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 
-                <div className="mb-3">
-                  <label className="form-label">OpenAI API Key</label>
-                  <input
-                    type="password"
-                    className="form-control"
-                    value={enhanceApiKey}
-                    onChange={(e) => setEnhanceApiKey(e.target.value)}
-                    placeholder="sk-..."
-                    disabled={isEnhancing}
-                  />
-                  <small className="text-muted">API key của bạn được lưu trên trình duyệt, không được gửi lên máy chủ.</small>
+                <div className="card mb-4">
+                  <div className="card-header bg-light">
+                    <h6 className="card-title mb-0"><i className="bi bi-magic me-2"></i>Ví dụ cải thiện nội dung</h6>
+                  </div>
+                  <div className="card-body">
+                    <div className="row">
+                      <div className="col-md-6">
+                        <div className="p-3 bg-light rounded mb-2 h-100">
+                          <h6 className="text-danger mb-2"><i className="bi bi-x-circle me-2"></i>Trước khi cải thiện</h6>
+                          <p className="small mb-0" style={{ color: '#666' }}>
+                            Phân tích thị trường là quan trọng vì nhiều lý do khác nhau, chẳng hạn như giúp doanh nghiệp hiểu rõ hơn về thị trường, giúp đưa ra quyết định, định vị sản phẩm, và nhiều lợi ích khác nữa mà doanh nghiệp có thể thu được từ việc này.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="p-3 rounded border border-success h-100">
+                          <h6 className="text-success mb-2"><i className="bi bi-check-circle me-2"></i>Sau khi cải thiện</h6>
+                          <p className="small mb-0">
+                            Phân tích thị trường giúp doanh nghiệp:
+                            <br/>• Hiểu rõ thị trường mục tiêu
+                            <br/>• Đưa ra quyết định dựa trên dữ liệu
+                            <br/>• Định vị sản phẩm hiệu quả
+                            <br/>• Tối ưu hóa chiến lược kinh doanh
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="alert alert-success">
+                  <div className="d-flex align-items-center">
+                    <i className="bi bi-rocket-takeoff-fill fs-3 me-3"></i>
+                    <div>
+                      <h6 className="mb-1">Quá trình hoàn toàn tự động</h6>
+                      <p className="mb-0">AI sẽ phân tích nội dung hiện tại và đề xuất cải tiến. Bạn luôn có thể chỉnh sửa thủ công sau khi quá trình hoàn tất.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="modal-footer">
+              <div className="modal-footer bg-light">
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn btn-outline-secondary"
                   onClick={() => setShowAIEnhanceDialog(false)}
                   disabled={isEnhancing}
                 >
+                  <i className="bi bi-x-circle me-1"></i>
                   Hủy
                 </button>
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="btn btn-info text-white"
                   onClick={handleEnhanceContent}
                   disabled={isEnhancing}
                 >
@@ -2005,7 +2363,10 @@ const EditorPage = () => {
                       Đang cải thiện...
                     </>
                   ) : (
-                    'Cải thiện'
+                    <>
+                      <i className="bi bi-stars me-1"></i>
+                      Cải thiện nội dung
+                    </>
                   )}
                 </button>
               </div>
