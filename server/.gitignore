@@ -1,0 +1,31 @@
+# Môi trường và cấu hình
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Thư mục phụ thuộc
+/node_modules
+
+# Log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs
+*.log
+
+# Thư mục build
+/dist
+/build
+
+# Hệ thống và IDE
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+
+# Tệp tạm
+.tmp
+.temp 
