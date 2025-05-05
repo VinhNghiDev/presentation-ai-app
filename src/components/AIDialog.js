@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { enhanceSlideContent } from '../services/apiService';
+import { enhanceSlideContent } from '../services/openaiService';
 import '../styles/AIDialog.css';
 
 const AIDialog = ({ isOpen, onClose, content = '', onEnhance, type = 'content' }) => {
@@ -40,11 +40,11 @@ const AIDialog = ({ isOpen, onClose, content = '', onEnhance, type = 'content' }
       setProcessStatus('Đang xử lý...');
 
       // Gọi API để nâng cao nội dung
-      const result = await enhanceSlideContent(contentToEnhance, enhancementType);
+      const enhancedContent = await enhanceSlideContent(contentToEnhance);
       
-      if (result && result.enhancedContent) {
+      if (enhancedContent) {
         // Gọi callback để trả về nội dung đã được nâng cao
-        onEnhance(result.enhancedContent);
+        onEnhance(enhancedContent);
         onClose();
       } else {
         throw new Error('Không nhận được nội dung nâng cao hợp lệ');

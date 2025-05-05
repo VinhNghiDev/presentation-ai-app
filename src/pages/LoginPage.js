@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import './LoginPage.css';
 
 const LoginPage = ({ setIsLoggedIn }) => {
   const navigate = useNavigate();
@@ -40,42 +41,92 @@ const LoginPage = ({ setIsLoggedIn }) => {
   };
 
   return (
-    <div className="min-vh-100 d-flex align-items-center bg-light">
-      <div className="container py-5">
-        <div className="row justify-content-center">
-          <div className="col-md-8 col-lg-6 col-xl-5">
-            <div className="text-center mb-4">
-              <Link to="/" className="text-decoration-none">
-                <h2 className="mb-1 fw-bold">
-                  <span className="text-primary">AI</span> Presentation
-                </h2>
-              </Link>
-              <p className="text-muted">
-                {isSignup 
-                  ? 'Tạo tài khoản và bắt đầu ngay' 
-                  : 'Đăng nhập và tiếp tục dự án của bạn'}
+    <div className="login-page">
+      <div className="login-container">
+        <div className="login-card">
+          <div className="login-left">
+            <div className="login-left-content">
+              <h2 className="welcome-title">Chào mừng đến với <span className="text-gradient">AI Presentation</span></h2>
+              <p className="welcome-description">
+                Trải nghiệm công cụ tạo bài thuyết trình thông minh nhất, được hỗ trợ bởi trí tuệ nhân tạo tiên tiến.
               </p>
-            </div>
-            
-            <div className="card border-0 shadow-sm">
-              <div className="card-body p-4">
-                <h4 className="card-title text-center mb-4">
-                  {isSignup ? 'Đăng ký' : 'Đăng nhập'}
-                </h4>
-                
-                {error && (
-                  <div className="alert alert-danger" role="alert">
-                    {error}
+              <div className="benefit-list">
+                <div className="benefit-item">
+                  <div className="benefit-icon">
+                    <i className="bi bi-lightning-charge-fill"></i>
                   </div>
-                )}
-                
-                <form onSubmit={handleSubmit}>
-                  {/* Email input */}
-                  <div className="mb-3">
-                    <label htmlFor="email" className="form-label">Email</label>
+                  <div className="benefit-text">
+                    <h4>Tiết kiệm thời gian</h4>
+                    <p>Tạo bài thuyết trình chỉ trong vài phút thay vì vài giờ</p>
+                  </div>
+                </div>
+                <div className="benefit-item">
+                  <div className="benefit-icon">
+                    <i className="bi bi-palette-fill"></i>
+                  </div>
+                  <div className="benefit-text">
+                    <h4>Thiết kế chuyên nghiệp</h4>
+                    <p>Hàng trăm mẫu đẹp mắt, được thiết kế bởi chuyên gia</p>
+                  </div>
+                </div>
+                <div className="benefit-item">
+                  <div className="benefit-icon">
+                    <i className="bi bi-people-fill"></i>
+                  </div>
+                  <div className="benefit-text">
+                    <h4>Cộng tác thời gian thực</h4>
+                    <p>Làm việc cùng nhóm của bạn một cách liền mạch</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="login-right">
+            <div className="login-right-content">
+              <div className="brand-logo">
+                <Link to="/" className="logo-link">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3Z" fill="#4F46E5" />
+                    <path d="M15 17H7V15H15V17ZM17 13H7V11H17V13ZM17 9H7V7H17V9Z" fill="white" />
+                  </svg>
+                  <span>AI Presentation</span>
+                </Link>
+              </div>
+              
+              <h3 className="auth-title">
+                {isSignup ? 'Tạo tài khoản mới' : 'Đăng nhập vào tài khoản'}
+              </h3>
+              
+              <div className="social-auth">
+                <button className="social-auth-btn google">
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google" />
+                  <span>Tiếp tục với Google</span>
+                </button>
+                <button className="social-auth-btn facebook">
+                  <i className="bi bi-facebook"></i>
+                  <span>Tiếp tục với Facebook</span>
+                </button>
+              </div>
+              
+              <div className="separator">
+                <span>hoặc</span>
+              </div>
+              
+              {error && (
+                <div className="error-message">
+                  <i className="bi bi-exclamation-circle me-2"></i>
+                  {error}
+                </div>
+              )}
+              
+              <form onSubmit={handleSubmit} className="auth-form">
+                <div className="form-group">
+                  <label htmlFor="email">Email</label>
+                  <div className="input-with-icon">
+                    <i className="bi bi-envelope"></i>
                     <input
                       type="email"
-                      className="form-control"
                       id="email"
                       placeholder="name@example.com"
                       value={email}
@@ -83,13 +134,21 @@ const LoginPage = ({ setIsLoggedIn }) => {
                       required
                     />
                   </div>
-                  
-                  {/* Password input */}
-                  <div className="mb-3">
-                    <label htmlFor="password" className="form-label">Mật khẩu</label>
+                </div>
+                
+                <div className="form-group">
+                  <div className="password-label">
+                    <label htmlFor="password">Mật khẩu</label>
+                    {!isSignup && (
+                      <Link to="/forgot-password" className="forgot-password">
+                        Quên mật khẩu?
+                      </Link>
+                    )}
+                  </div>
+                  <div className="input-with-icon">
+                    <i className="bi bi-lock"></i>
                     <input
                       type="password"
-                      className="form-control"
                       id="password"
                       placeholder="••••••••"
                       value={password}
@@ -98,76 +157,70 @@ const LoginPage = ({ setIsLoggedIn }) => {
                       minLength={6}
                     />
                   </div>
-                  
-                  {/* Confirm Password (for signup only) */}
-                  {isSignup && (
-                    <div className="mb-3">
-                      <label htmlFor="confirmPassword" className="form-label">Xác nhận mật khẩu</label>
+                </div>
+                
+                {isSignup && (
+                  <div className="form-group">
+                    <label htmlFor="confirmPassword">Xác nhận mật khẩu</label>
+                    <div className="input-with-icon">
+                      <i className="bi bi-lock"></i>
                       <input
                         type="password"
-                        className="form-control"
                         id="confirmPassword"
                         placeholder="••••••••"
                         required
                         minLength={6}
                       />
                     </div>
-                  )}
-                  
-                  {/* Remember me checkbox */}
-                  <div className="mb-3 form-check">
+                  </div>
+                )}
+                
+                {!isSignup && (
+                  <div className="form-check">
                     <input type="checkbox" className="form-check-input" id="rememberMe" />
                     <label className="form-check-label" htmlFor="rememberMe">
                       Ghi nhớ đăng nhập
                     </label>
                   </div>
-                  
-                  {/* Submit button */}
-                  <button
-                    type="submit"
-                    className="btn btn-primary w-100 py-2"
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <span>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Đang xử lý...
-                      </span>
-                    ) : (
-                      isSignup ? 'Đăng ký' : 'Đăng nhập'
-                    )}
-                  </button>
-                </form>
+                )}
                 
-                <div className="text-center mt-3">
+                <button
+                  type="submit"
+                  className="submit-btn"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner"></span>
+                      <span>Đang xử lý...</span>
+                    </>
+                  ) : (
+                    isSignup ? 'Đăng ký' : 'Đăng nhập'
+                  )}
+                </button>
+              </form>
+              
+              <div className="auth-switch">
+                <p>
+                  {isSignup
+                    ? 'Đã có tài khoản? '
+                    : 'Chưa có tài khoản? '}
                   <button
                     type="button"
-                    className="btn btn-link text-decoration-none"
+                    className="switch-btn"
                     onClick={() => setIsSignup(!isSignup)}
                   >
-                    {isSignup
-                      ? 'Đã có tài khoản? Đăng nhập'
-                      : 'Chưa có tài khoản? Đăng ký ngay'}
+                    {isSignup ? 'Đăng nhập' : 'Đăng ký ngay'}
                   </button>
-                </div>
-                
-                <hr className="my-4" />
-                
-                <div className="d-grid gap-2">
-                  <button className="btn btn-outline-secondary">
-                    <i className="bi bi-google me-2"></i> Tiếp tục với Google
-                  </button>
-                  <button className="btn btn-outline-secondary">
-                    <i className="bi bi-facebook me-2"></i> Tiếp tục với Facebook
-                  </button>
-                </div>
+                </p>
               </div>
-            </div>
-            
-            <div className="text-center mt-4">
-              <Link to="/" className="text-decoration-none">
-                <i className="bi bi-arrow-left me-1"></i> Quay lại trang chủ
-              </Link>
+              
+              <div className="back-home">
+                <Link to="/" className="back-link">
+                  <i className="bi bi-arrow-left"></i>
+                  <span>Quay lại trang chủ</span>
+                </Link>
+              </div>
             </div>
           </div>
         </div>

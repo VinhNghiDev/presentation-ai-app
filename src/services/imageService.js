@@ -27,6 +27,31 @@ export const getUnsplashApiKey = () => {
 };
 
 /**
+ * Lấy URL hình ảnh dựa trên từ khóa
+ * Hàm này được thiết kế để sử dụng với chức năng tạo bài thuyết trình tự động
+ * @param {string|Array} keyword - Từ khóa hoặc mảng từ khóa
+ * @param {Object} options - Các tùy chọn bổ sung (kích thước, v.v.)
+ * @returns {string} - URL hình ảnh
+ */
+export const getImageByKeyword = (keyword, options = {}) => {
+  try {
+    // Xử lý từ khóa nếu là mảng
+    const searchTerm = Array.isArray(keyword) ? keyword[0] : keyword;
+    const encodedKeyword = encodeURIComponent(searchTerm);
+    
+    // Lấy kích thước từ tùy chọn hoặc sử dụng giá trị mặc định
+    const { width = 800, height = 600 } = options;
+    
+    // Đầu tiên thử sử dụng Unsplash Source API (không cần API key)
+    return `https://source.unsplash.com/${width}x${height}/?${encodedKeyword}`;
+  } catch (error) {
+    console.error('Error generating image URL:', error);
+    // Fallback đến Lorem Picsum nếu có lỗi
+    return `https://picsum.photos/${options.width || 800}/${options.height || 600}?text=${encodeURIComponent(keyword)}`;
+  }
+};
+
+/**
  * Tìm kiếm hình ảnh từ Unsplash
  * @param {string} query - Từ khóa tìm kiếm
  * @param {Object} options - Tùy chọn tìm kiếm

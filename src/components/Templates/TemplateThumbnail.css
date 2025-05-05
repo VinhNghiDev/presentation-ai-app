@@ -1,0 +1,242 @@
+/* Template Thumbnail Styles */
+.template-thumbnail {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Size variants */
+.template-thumbnail.small {
+  height: 100px;
+}
+
+.template-thumbnail.medium {
+  height: 150px;
+}
+
+.template-thumbnail.large {
+  height: 200px;
+}
+
+/* Default preview */
+.default-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+}
+
+.preview-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+/* Business preview */
+.business-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+}
+
+.business-preview .preview-header {
+  height: 30%;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.business-preview .preview-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.business-preview .preview-line {
+  width: 60%;
+  height: 8px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.business-preview .preview-body {
+  flex: 1;
+  padding: 0.75rem;
+}
+
+.business-preview .preview-title-block {
+  width: 70%;
+  height: 10px;
+  border-radius: 4px;
+  background-color: #d1d5db;
+  margin-bottom: 1rem;
+}
+
+.business-preview .preview-content {
+  display: flex;
+  gap: 0.5rem;
+  height: calc(100% - 1.5rem);
+}
+
+.business-preview .preview-graph {
+  width: 40%;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+}
+
+.business-preview .preview-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Creative preview */
+.creative-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  background-color: #ffffff;
+}
+
+.creative-preview .preview-side {
+  width: 30%;
+}
+
+.creative-preview .preview-content {
+  flex: 1;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.creative-preview .preview-title-block {
+  width: 60%;
+  height: 10px;
+  border-radius: 4px;
+  background-color: #d1d5db;
+  margin-bottom: 0.5rem;
+}
+
+.creative-preview .preview-image-block {
+  width: 100%;
+  height: 50%;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.creative-preview .preview-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Minimal preview */
+.minimal-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.minimal-preview .preview-content {
+  width: 80%;
+  height: 70%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.minimal-preview .preview-title-block {
+  width: 80%;
+  height: 12px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.2);
+  margin-bottom: 1rem;
+}
+
+.minimal-preview .preview-line {
+  height: 6px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Education preview */
+.education-preview {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+}
+
+.education-preview .preview-top {
+  height: 20%;
+}
+
+.education-preview .preview-content {
+  flex: 1;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.education-preview .preview-title-block {
+  width: 70%;
+  height: 10px;
+  border-radius: 4px;
+  background-color: #d1d5db;
+  margin-bottom: 1rem;
+}
+
+.education-preview .preview-points {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.education-preview .preview-point {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.education-preview .preview-bullet {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Common line elements */
+.preview-line {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #e5e7eb;
+}
+
+.preview-line.short {
+  width: 30%;
+}
+
+.preview-line.medium {
+  width: 60%;
+}
+
+.preview-line.long {
+  width: 90%;
+} 
