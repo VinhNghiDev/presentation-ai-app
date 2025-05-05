@@ -1,86 +1,121 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { enhanceSlideContent } from '../services/apiService';
+import '../styles/AIDialog.css';
 
-const AIDialog = ({ show, onClose, onGenerate }) => {
-  const [topic, setTopic] = useState('');
-  const [style, setStyle] = useState('professional');
-  const [slides, setSlides] = useState(5);
+const AIDialog = ({ isOpen, onClose, content = '', onEnhance, type = 'content' }) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [enhancementType, setEnhancementType] = useState(type);
+  const [contentToEnhance, setContentToEnhance] = useState(content);
+  const [error, setError] = useState('');
+  const [processStatus, setProcessStatus] = useState('');
+  const textareaRef = useRef(null);
 
-  const handleGenerate = () => {
-    onGenerate({
-      topic,
-      style,
-      slides
-    });
+  // Xử lý khi dialog mở
+  React.useEffect(() => {
+    if (isOpen) {
+      setContentToEnhance(content);
+      setEnhancementType(type);
+      setError('');
+      setProcessStatus('');
+      
+      // Focus vào textarea khi dialog mở
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }, 100);
+    }
+  }, [isOpen, content, type]);
+
+  // Xử lý nâng cao nội dung
+  const handleEnhance = async () => {
+    if (!contentToEnhance.trim()) {
+      setError('Vui lòng nhập nội dung cần nâng cao');
+      return;
+    }
+
+    try {
+      setIsProcessing(true);
+      setError('');
+      setProcessStatus('Đang xử lý...');
+
+      // Gọi API để nâng cao nội dung
+      const result = await enhanceSlideContent(contentToEnhance, enhancementType);
+      
+      if (result && result.enhancedContent) {
+        // Gọi callback để trả về nội dung đã được nâng cao
+        onEnhance(result.enhancedContent);
+        onClose();
+      } else {
+        throw new Error('Không nhận được nội dung nâng cao hợp lệ');
+      }
+    } catch (error) {
+      console.error('Error enhancing content:', error);
+      setError(error.message || 'Có lỗi xảy ra khi nâng cao nội dung');
+    } finally {
+      setIsProcessing(false);
+      setProcessStatus('');
+    }
   };
 
-  if (!show) return null;
+  // Nếu dialog không mở, không render gì cả
+  if (!isOpen) return null;
 
   return (
-    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-      <div className="modal-dialog">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">Tạo bài thuyết trình với AI</h5>
-            <button
-              type="button"
-              className="btn-close"
-              onClick={onClose}
-            ></button>
+    <div className="ai-dialog-overlay">
+      <div className="ai-dialog">
+        <div className="ai-dialog-header">
+          <h2>Nâng cao nội dung bằng AI</h2>
+          <button className="close-button" onClick={onClose}>×</button>
+        </div>
+        
+        <div className="ai-dialog-content">
+          <div className="form-group">
+            <label htmlFor="enhancement-type">Chọn kiểu nâng cao</label>
+            <select 
+              id="enhancement-type" 
+              value={enhancementType}
+              onChange={(e) => setEnhancementType(e.target.value)}
+              disabled={isProcessing}
+            >
+              <option value="improve">Cải thiện tổng thể</option>
+              <option value="concise">Làm súc tích</option>
+              <option value="elaborate">Bổ sung chi tiết</option>
+              <option value="professional">Phong cách chuyên nghiệp</option>
+              <option value="creative">Phong cách sáng tạo</option>
+            </select>
           </div>
-          <div className="modal-body">
-            <div className="mb-3">
-              <label htmlFor="aiTopic" className="form-label">Chủ đề bài thuyết trình</label>
-              <input
-                type="text"
-                className="form-control"
-                id="aiTopic"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="Ví dụ: Chiến lược marketing 2025"
-              />
-            </div>
-            
-            <div className="mb-3">
-              <label className="form-label">Phong cách</label>
-              <select 
-                className="form-select"
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-              >
-                <option value="professional">Chuyên nghiệp</option>
-                <option value="creative">Sáng tạo</option>
-                <option value="minimal">Tối giản</option>
-                <option value="academic">Học thuật</option>
-              </select>
-            </div>
-            
-            <div className="mb-3">
-              <label className="form-label">Số lượng slides</label>
-              <input
-                type="range"
-                className="form-range"
-                min="3"
-                max="15"
-                value={slides}
-                onChange={(e) => setSlides(parseInt(e.target.value))}
-              />
-              <div className="text-center">{slides} slides</div>
-            </div>
+          
+          <div className="form-group">
+            <label htmlFor="content-to-enhance">Nội dung cần nâng cao</label>
+            <textarea 
+              id="content-to-enhance" 
+              ref={textareaRef}
+              value={contentToEnhance}
+              onChange={(e) => setContentToEnhance(e.target.value)}
+              disabled={isProcessing}
+              rows={8}
+              placeholder="Nhập nội dung cần nâng cao..."
+            ></textarea>
           </div>
-          <div className="modal-footer">
-            <button
-              type="button"
-              className="btn btn-secondary"
+          
+          {error && <div className="error-message">{error}</div>}
+          {processStatus && <div className="status-message">{processStatus}</div>}
+          
+          <div className="ai-dialog-actions">
+            <button 
+              className="cancel-button" 
               onClick={onClose}
+              disabled={isProcessing}
             >
               Hủy
             </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleGenerate}
+            <button 
+              className="enhance-button" 
+              onClick={handleEnhance}
+              disabled={isProcessing || !contentToEnhance.trim()}
             >
-              Tạo
+              {isProcessing ? 'Đang xử lý...' : 'Nâng cao nội dung'}
             </button>
           </div>
         </div>

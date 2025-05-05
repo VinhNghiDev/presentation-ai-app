@@ -1,0 +1,244 @@
+.ai-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.ai-dialog {
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  animation: dialog-fade-in 0.3s ease-out;
+}
+
+@keyframes dialog-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eaeaea;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-dialog-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  line-height: 1;
+}
+
+.close-button:hover {
+  color: #333;
+}
+
+.ai-dialog-content {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: calc(90vh - 130px);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group select, 
+.form-group textarea, 
+.form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 16px;
+  transition: border-color 0.2s;
+}
+
+.form-group select:focus, 
+.form-group textarea:focus, 
+.form-group input:focus {
+  outline: none;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+.form-group select {
+  background-color: #fff;
+  height: 42px;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.ai-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.cancel-button,
+.enhance-button {
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-button {
+  background-color: #f1f3f4;
+  border: 1px solid #dadce0;
+  color: #3c4043;
+}
+
+.enhance-button {
+  background-color: #1a73e8;
+  border: 1px solid #1a73e8;
+  color: white;
+}
+
+.cancel-button:hover {
+  background-color: #e8eaed;
+}
+
+.enhance-button:hover {
+  background-color: #1765cc;
+  border-color: #1765cc;
+}
+
+.cancel-button:disabled,
+.enhance-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-message {
+  color: #d93025;
+  padding: 8px 12px;
+  background-color: #fce8e6;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.status-message {
+  color: #188038;
+  padding: 8px 12px;
+  background-color: #e6f4ea;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+/* For dark mode support */
+@media (prefers-color-scheme: dark) {
+  .ai-dialog {
+    background-color: #1f1f1f;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  }
+  
+  .ai-dialog-header {
+    border-bottom-color: #333;
+  }
+  
+  .ai-dialog-header h2 {
+    color: #e8eaed;
+  }
+  
+  .close-button {
+    color: #bdc1c6;
+  }
+  
+  .close-button:hover {
+    color: #ffffff;
+  }
+  
+  .form-group label {
+    color: #e8eaed;
+  }
+  
+  .form-group select, 
+  .form-group textarea, 
+  .form-group input {
+    background-color: #2d2d2d;
+    border-color: #5f6368;
+    color: #e8eaed;
+  }
+  
+  .form-group select:focus, 
+  .form-group textarea:focus, 
+  .form-group input:focus {
+    border-color: #8ab4f8;
+    box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.2);
+  }
+  
+  .cancel-button {
+    background-color: #3c4043;
+    border-color: #5f6368;
+    color: #e8eaed;
+  }
+  
+  .cancel-button:hover {
+    background-color: #4d5156;
+  }
+  
+  .enhance-button {
+    background-color: #8ab4f8;
+    border-color: #8ab4f8;
+    color: #202124;
+  }
+  
+  .enhance-button:hover {
+    background-color: #aecbfa;
+    border-color: #aecbfa;
+  }
+  
+  .error-message {
+    background-color: rgba(217, 48, 37, 0.2);
+    color: #f28b82;
+  }
+  
+  .status-message {
+    background-color: rgba(24, 128, 56, 0.2);
+    color: #81c995;
+  }
+} 
