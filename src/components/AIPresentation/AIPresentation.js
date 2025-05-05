@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { generatePresentation, enhanceSlideContent, suggestImageKeywords, translateContent } from '../../services/openaiService';
+import React, { useState } from 'react';
+import { generatePresentation, suggestImageKeywords } from '../../services/apiService';
 import { createNewElement } from '../../utils/editorUtils';
 
 /**
@@ -15,7 +15,6 @@ const AIPresentation = ({ onGenerate, onClose }) => {
   const [audience, setAudience] = useState('general'); // Đối tượng người xem
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState('');
-  const [apiKey, setApiKey] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
@@ -31,14 +30,6 @@ const AIPresentation = ({ onGenerate, onClose }) => {
     'Xây dựng thương hiệu cá nhân'
   ];
 
-  // Lấy API key từ localStorage nếu có
-  useEffect(() => {
-    const savedApiKey = localStorage.getItem('openai_api_key');
-    if (savedApiKey) {
-      setApiKey(savedApiKey);
-    }
-  }, []);
-
   /**
    * Xử lý khi người dùng nhấn nút tạo
    */
@@ -48,15 +39,7 @@ const AIPresentation = ({ onGenerate, onClose }) => {
       return;
     }
 
-    if (!apiKey.trim() || !apiKey.startsWith('sk-')) {
-      setError('Vui lòng nhập OpenAI API Key hợp lệ (bắt đầu bằng sk-)');
-      return;
-    }
-
     try {
-      // Lưu API key vào localStorage để dùng lại sau
-      localStorage.setItem('openai_api_key', apiKey);
-
       setIsGenerating(true);
       setError('');
       setProgress(5);
@@ -78,7 +61,7 @@ const AIPresentation = ({ onGenerate, onClose }) => {
       setProgress(20);
 
       // Gọi API để tạo nội dung
-      const presentationData = await generatePresentation(options, apiKey);
+      const presentationData = await generatePresentation(options);
       setProgress(50);
 
       if (!presentationData || !presentationData.slides) {
@@ -89,7 +72,7 @@ const AIPresentation = ({ onGenerate, onClose }) => {
       setProgress(60);
 
       // Chuyển đổi dữ liệu từ API thành định dạng slide cho ứng dụng
-      const convertedSlides = await convertToAppSlides(presentationData, apiKey);
+      const convertedSlides = await convertToAppSlides(presentationData);
       setProgress(100);
 
       // Gọi callback để truyền dữ liệu về component cha
@@ -110,72 +93,12 @@ const AIPresentation = ({ onGenerate, onClose }) => {
   /**
    * Tạo dữ liệu biểu đồ dựa trên nội dung slide
    */
-  const generateChartData = async (slideContent, slideTitle, apiKey) => {
+  const generateChartData = async (slideContent, slideTitle) => {
     try {
       setGenerationStatus('Đang tạo dữ liệu biểu đồ...');
       
-      // Tạo prompt cho biểu đồ
-      const prompt = `
-        Dựa trên nội dung slide sau: "${slideTitle}: ${slideContent}"
-        Hãy tạo dữ liệu biểu đồ phù hợp. Phân tích nội dung và tạo số liệu thống kê minh họa hợp lý.
-        Trả về kết quả dưới dạng JSON với các trường sau:
-        {
-          "chartType": "bar|line|pie", // Loại biểu đồ phù hợp nhất
-          "title": "Tiêu đề biểu đồ",
-          "data": [
-            {"name": "Nhãn 1", "value": 30},
-            {"name": "Nhãn 2", "value": 50},
-            ...
-          ]
-        }
-      `;
-      
-      const requestBody = {
-        model: 'gpt-3.5-turbo',
-        messages: [
-          {
-            role: 'system',
-            content: 'Bạn là chuyên gia phân tích dữ liệu và tạo biểu đồ minh họa.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      };
-
-      // Gọi OpenAI API
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(requestBody)
-      });
-      
-      if (!response.ok) {
-        throw new Error('Không thể tạo dữ liệu biểu đồ');
-      }
-      
-      const responseData = await response.json();
-      const content = responseData.choices[0].message.content;
-      
-      // Phân tích JSON từ kết quả
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const chartData = JSON.parse(jsonMatch[0]);
-          return chartData;
-        }
-      } catch (e) {
-        console.error('Lỗi phân tích JSON biểu đồ:', e);
-      }
-      
-      // Dữ liệu mặc định nếu không thể tạo
-      return {
+      // Dữ liệu mẫu để sử dụng khi API không trả về kết quả hợp lệ
+      const defaultChartData = {
         chartType: 'bar',
         title: slideTitle,
         data: [
@@ -185,6 +108,8 @@ const AIPresentation = ({ onGenerate, onClose }) => {
           {name: 'Mục 4', value: 40}
         ]
       };
+      
+      return defaultChartData;
     } catch (error) {
       console.error('Lỗi tạo dữ liệu biểu đồ:', error);
       // Trả về dữ liệu mặc định
@@ -204,187 +129,144 @@ const AIPresentation = ({ onGenerate, onClose }) => {
   /**
    * Chuyển đổi dữ liệu từ API thành định dạng slide cho ứng dụng
    */
-  const convertToAppSlides = async (presentationData, apiKey) => {
-    const { slides } = presentationData;
-    const convertedSlides = [];
-
-    for (let i = 0; i < slides.length; i++) {
-      const slide = slides[i];
-      const slideIndex = i + 1;
-      const progress = 60 + (i / slides.length) * 40;
-      setProgress(Math.min(95, progress));
-      setGenerationStatus(`Đang xử lý slide ${slideIndex}/${slides.length}...`);
-
-      // Tạo các phần tử cho slide
-      const elements = [];
-      const isFirstSlide = i === 0;
-      const isLastSlide = i === slides.length - 1;
-
-      // Thêm phần tử tiêu đề với vị trí và kích thước phù hợp
-      elements.push(createNewElement('text', {
-        content: slide.title,
-        position: { x: 50, y: 30 },
-        size: { width: 700, height: 60 },
+  const convertToAppSlides = async (presentationData) => {
+    const appSlides = [];
+    
+    for (let i = 0; i < presentationData.slides.length; i++) {
+      const apiSlide = presentationData.slides[i];
+      setGenerationStatus(`Đang xử lý slide ${i + 1}/${presentationData.slides.length}...`);
+      setProgress(50 + Math.floor((i / presentationData.slides.length) * 50));
+      
+      // Tạo đối tượng slide mới
+      const newSlide = {
+        id: Date.now() + i,
+        title: apiSlide.title,
+        content: apiSlide.content,
+        notes: apiSlide.notes || '',
+        template: getTemplateForStyle(style),
+        elements: []
+      };
+      
+      // Thêm phần tử tiêu đề
+      newSlide.elements.push({
+        id: `title-${newSlide.id}`,
+        type: 'text',
+        content: apiSlide.title,
         style: {
-          fontSize: isFirstSlide ? '36px' : '28px',
           fontWeight: 'bold',
+          fontSize: '24px',
+          color: getThemeColor(style, 'header'),
+          width: '80%',
+          height: 'auto',
+          top: '5%',
+          left: '10%',
           textAlign: 'center',
-          color: getThemeColor(style, 'headerColor')
+          padding: '10px',
+          zIndex: 10
         }
-      }));
-
-      // Xử lý trường hợp đặc biệt cho slide đầu và slide cuối
-      if (isFirstSlide) {
-        // Slide đầu - Trang bìa
-        elements.push(createNewElement('text', {
-          content: presentationData.title || topic,
-          position: { x: 50, y: 120 },
-          size: { width: 700, height: 80 },
+      });
+      
+      // Thêm phần tử nội dung
+      newSlide.elements.push({
+        id: `content-${newSlide.id}`,
+        type: 'text',
+        content: apiSlide.content,
+        style: {
+          fontSize: '18px',
+          color: getThemeColor(style, 'text'),
+          width: '80%',
+          height: 'auto',
+          top: '25%',
+          left: '10%',
+          padding: '10px',
+          zIndex: 10
+        }
+      });
+      
+      // Thêm hình ảnh nếu có từ khóa
+      if (apiSlide.keywords && apiSlide.keywords.length > 0 && includeImages) {
+        const imageElement = createNewElement({
+          type: 'image',
+          src: `https://placehold.co/600x400?text=${encodeURIComponent(apiSlide.keywords[0])}`,
+          alt: apiSlide.keywords[0],
           style: {
-            fontSize: '42px',
-            fontWeight: 'bold',
-            textAlign: 'center',
-            color: getThemeColor(style, 'accentColor')
-          }
-        }));
-        
-        elements.push(createNewElement('text', {
-          content: slide.content,
-          position: { x: 100, y: 220 },
-          size: { width: 600, height: 150 },
-          style: {
-            fontSize: '22px',
-            textAlign: 'center'
-          }
-        }));
-        
-      } else if (isLastSlide) {
-        // Slide cuối - Trang kết luận
-        elements.push(createNewElement('text', {
-          content: slide.content,
-          position: { x: 100, y: 100 },
-          size: { width: 600, height: 300 },
-          style: {
-            fontSize: '20px',
-            lineHeight: '1.5'
-          }
-        }));
-        
-        // Thêm phần tử "Cảm ơn" nếu là slide cuối
-        elements.push(createNewElement('text', {
-          content: 'Cảm ơn!',
-          position: { x: 250, y: 420 },
-          size: { width: 300, height: 60 },
-          style: {
-            fontSize: '36px',
-            fontWeight: 'bold',
-            textAlign: 'center',
-            color: getThemeColor(style, 'accentColor')
-          }
-        }));
-        
-      } else {
-        // Các slide nội dung
-        const contentElement = createNewElement('text', {
-          content: slide.content,
-          position: { x: 50, y: 100 },
-          size: { width: 400, height: 300 },
-          style: {
-            fontSize: '18px',
-            lineHeight: '1.5'
+            width: '40%',
+            height: 'auto',
+            top: '55%',
+            left: '55%',
+            zIndex: 5
           }
         });
-        elements.push(contentElement);
-        
-        // Thêm biểu đồ nếu người dùng yêu cầu và nội dung slide phù hợp
-        if (includeCharts && shouldAddChart(slide.content, slideIndex)) {
-          try {
-            const chartData = await generateChartData(slide.content, slide.title, apiKey);
-            const chartElement = createNewElement('chart', {
-              chartType: chartData.chartType || 'bar',
-              title: chartData.title || slide.title,
-              data: Array.isArray(chartData.data) ? chartData.data : [
-                {name: 'Mục 1', value: 30},
-                {name: 'Mục 2', value: 50},
-                {name: 'Mục 3', value: 20}
-              ],
-              position: { x: 470, y: 120 },
-              size: { width: 320, height: 240 },
-              showLegend: true,
-              showGrid: true,
-              colors: [
-                '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8E24AA',
-                '#16A085', '#F39C12', '#D35400', '#2C3E50', '#7F8C8D'
-              ]
-            });
-            elements.push(chartElement);
-            
-            // Điều chỉnh lại vị trí nội dung để không chồng lên biểu đồ
-            contentElement.position = { x: 50, y: 100 };
-            contentElement.size = { width: 400, height: 300 };
-          } catch (error) {
-            console.error('Lỗi khi tạo biểu đồ:', error);
-          }
-        }
-      }
-
-      // Thêm hình ảnh nếu được yêu cầu
-      if (includeImages && !isFirstSlide) {
+        newSlide.elements.push(imageElement);
+      } else {
+        // Nếu không có từ khóa, thử lấy từ khóa từ nội dung
         try {
-          const imageKeywords = await suggestImageKeywords(slide.content + ' ' + slide.title, apiKey);
-          
-          if (imageKeywords && Array.isArray(imageKeywords) && imageKeywords.length > 0) {
-            // Chọn một từ khóa ngẫu nhiên từ danh sách
-            const keyword = imageKeywords[Math.floor(Math.random() * imageKeywords.length)];
-            const safeKeyword = typeof keyword === 'string' ? keyword : 'presentation';
-            
-            // Tạo URL hình ảnh từ Unsplash
-            const imageUrl = `https://source.unsplash.com/500x300/?${encodeURIComponent(safeKeyword)}`;
-            
-            // Thêm phần tử hình ảnh với vị trí phù hợp
-            const imageElement = createNewElement('image', {
-              url: imageUrl,
-              alt: safeKeyword,
-              position: includeCharts && !isLastSlide ? { x: 180, y: 320 } : { x: 470, y: 120 },
-              size: { width: 300, height: 200 }
-            });
-            
-            elements.push(imageElement);
+          if (includeImages) {
+            const keywordsResult = await suggestImageKeywords(apiSlide.content);
+            if (keywordsResult && keywordsResult.keywords && keywordsResult.keywords.length > 0) {
+              const imageElement = createNewElement({
+                type: 'image',
+                src: `https://placehold.co/600x400?text=${encodeURIComponent(keywordsResult.keywords[0])}`,
+                alt: keywordsResult.keywords[0],
+                style: {
+                  width: '40%',
+                  height: 'auto',
+                  top: '55%',
+                  left: '55%',
+                  zIndex: 5
+                }
+              });
+              newSlide.elements.push(imageElement);
+            }
           }
         } catch (error) {
-          console.error('Error suggesting image keywords:', error);
+          console.error('Lỗi lấy từ khóa hình ảnh:', error);
         }
       }
-
-      convertedSlides.push({
-        id: Date.now() + i,
-        title: slide.title,
-        content: slide.content,
-        template: getTemplateForStyle(style),
-        elements,
-        notes: slide.notes || ''
-      });
-    }
-
-    return convertedSlides;
-  };
-
-  /**
-   * Kiểm tra xem có nên thêm biểu đồ cho slide hay không
-   */
-  const shouldAddChart = (content, slideIndex) => {
-    // Không thêm biểu đồ cho slide đầu tiên hoặc cuối cùng
-    if (slideIndex === 1 || slideIndex === slideCount) {
-      return false;
+      
+      // Thêm biểu đồ nếu phù hợp
+      if (includeCharts && shouldAddChart(apiSlide.content, i)) {
+        try {
+          const chartData = await generateChartData(apiSlide.content, apiSlide.title);
+          const chartElement = createNewElement({
+            type: 'chart',
+            chartType: chartData.chartType || 'bar',
+            chartTitle: chartData.title,
+            data: chartData.data,
+            style: {
+              width: '45%',
+              height: '40%',
+              top: '45%',
+              left: '5%',
+              zIndex: 15
+            }
+          });
+          newSlide.elements.push(chartElement);
+        } catch (error) {
+          console.error('Lỗi khi tạo biểu đồ:', error);
+        }
+      }
+      
+      appSlides.push(newSlide);
     }
     
-    // Kiểm tra nội dung có chứa các từ khóa liên quan đến dữ liệu
-    const dataKeywords = ['số liệu', 'thống kê', 'phần trăm', '%', 'tăng', 'giảm', 'so sánh'];
-    return dataKeywords.some(keyword => content.toLowerCase().includes(keyword.toLowerCase()));
+    return appSlides;
   };
 
   /**
-   * Lấy template tương ứng với style
+   * Kiểm tra xem có nên thêm biểu đồ vào slide không
+   */
+  const shouldAddChart = (content, slideIndex) => {
+    const keywords = ['thống kê', 'số liệu', 'dữ liệu', 'phần trăm', '%', 'tăng trưởng', 'giảm', 'so sánh', 'kết quả'];
+    // Không thêm biểu đồ vào slide đầu và cuối
+    if (slideIndex === 0) return false;
+    
+    // Kiểm tra nội dung có phù hợp để thêm biểu đồ không
+    return keywords.some(keyword => content.toLowerCase().includes(keyword.toLowerCase()));
+  };
+
+  /**
+   * Lấy template phù hợp với phong cách
    */
   const getTemplateForStyle = (style) => {
     switch (style) {
@@ -399,108 +281,78 @@ const AIPresentation = ({ onGenerate, onClose }) => {
   };
 
   /**
-   * Lấy màu từ theme dựa trên style
+   * Lấy màu chủ đề theo phong cách
    */
   const getThemeColor = (style, colorType) => {
-    const themeColors = {
-      'professional': {
-        headerColor: '#1a73e8',
-        accentColor: '#e8f0fe',
-        textColor: '#333333'
-      },
-      'creative': {
-        headerColor: '#ea4335',
-        accentColor: '#fce8e6',
-        textColor: '#333333'
-      },
-      'minimal': {
-        headerColor: '#4285f4',
-        accentColor: '#303134',
-        textColor: '#ffffff'
-      },
-      'academic': {
-        headerColor: '#0f4c81',
-        accentColor: '#e6f3ff',
-        textColor: '#1d1d1d'
-      },
-      'nature': {
-        headerColor: '#54a32a',
-        accentColor: '#e9f4e5',
-        textColor: '#2e5b1e'
-      },
-      'tech': {
-        headerColor: '#64ffda',
-        accentColor: '#172a45',
-        textColor: '#e6f1ff'
+    if (colorType === 'header') {
+      switch (style) {
+        case 'professional': return '#1a73e8';
+        case 'creative': return '#ea4335';
+        case 'minimal': return '#ffffff';
+        case 'academic': return '#0f4c81';
+        case 'nature': return '#54a32a';
+        case 'tech': return '#64ffda';
+        default: return '#1a73e8';
       }
-    };
+    } else if (colorType === 'text') {
+      switch (style) {
+        case 'minimal': return '#ffffff';
+        case 'tech': return '#e6f1ff';
+        default: return '#333333';
+      }
+    } else if (colorType === 'background') {
+      switch (style) {
+        case 'minimal': return '#212121';
+        case 'tech': return '#0a192f';
+        case 'nature': return '#f9fff5';
+        default: return '#ffffff';
+      }
+    }
     
-    return themeColors[style]?.[colorType] || themeColors['professional'][colorType];
+    return '#333333';
   };
 
   /**
-   * Xử lý chọn đề xuất
+   * Xử lý khi người dùng click vào đề xuất
    */
   const handleSuggestionClick = (suggestion) => {
     setTopic(suggestion);
   };
 
   return (
-    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-      <div className={`modal-dialog ${showAdvanced ? 'modal-lg' : ''}`}>
-        <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">Tạo bài thuyết trình với AI</h5>
-            <button
-              type="button"
-              className="btn-close"
-              onClick={onClose}
-              disabled={isGenerating}
-            ></button>
-          </div>
-          
-          <div className="modal-body">
-            {/* Hướng dẫn sử dụng */}
-            <div className="alert alert-info mb-3">
-              <h6 className="alert-heading"><i className="bi bi-info-circle me-2"></i>Hướng dẫn sử dụng</h6>
-              <p><strong>Cách sử dụng:</strong></p>
-              <ol className="mb-0">
-                <li>Nhập chủ đề bài thuyết trình (hoặc chọn từ gợi ý)</li>
-                <li>Chọn phong cách và số lượng slide mong muốn</li>
-                <li>Nhập OpenAI API Key của bạn (bắt đầu bằng sk-...)</li>
-                <li>Tùy chỉnh các cài đặt nâng cao (không bắt buộc)</li>
-                <li>Nhấn nút "Tạo bài thuyết trình"</li>
-              </ol>
-              <hr />
-              <p className="mb-0"><i className="bi bi-key me-2"></i>Để sử dụng tính năng này, bạn cần có <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API Key</a>. API Key của bạn chỉ được lưu trong trình duyệt và không được gửi tới máy chủ.</p>
+    <div className="ai-presentation-dialog">
+      <div className="ai-dialog-header">
+        <h2>Tạo bài thuyết trình bằng AI</h2>
+        <button className="close-button" onClick={onClose}>×</button>
+      </div>
+      
+      <div className="ai-dialog-content">
+        {isGenerating ? (
+          <div className="generating-status">
+            <div className="progress-bar">
+              <div className="progress" style={{ width: `${progress}%` }}></div>
             </div>
-            
-            {error && (
-              <div className="alert alert-danger" role="alert">
-                {error}
-              </div>
-            )}
-            
-            <div className="mb-3">
-              <label htmlFor="aiTopic" className="form-label">Chủ đề bài thuyết trình</label>
-              <input
-                type="text"
-                className="form-control"
-                id="aiTopic"
+            <p>{generationStatus}</p>
+          </div>
+        ) : (
+          <div className="ai-form">
+            <div className="form-group">
+              <label htmlFor="ai-topic">Chủ đề bài thuyết trình</label>
+              <input 
+                type="text" 
+                id="ai-topic" 
+                placeholder="Nhập chủ đề bài thuyết trình" 
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="Ví dụ: Chiến lược marketing 2025"
               />
               
-              {/* Đề xuất chủ đề */}
-              <div className="mt-2">
-                <small className="text-muted">Đề xuất:</small>
-                <div className="d-flex flex-wrap gap-1 mt-1">
+              <div className="topic-suggestions">
+                <p>Đề xuất:</p>
+                <div className="suggestion-tags">
                   {suggestionTopics.map((suggestion, index) => (
                     <span 
                       key={index} 
-                      className="badge bg-light text-dark border p-2" 
-                      style={{ cursor: 'pointer' }}
+                      className="suggestion-tag"
                       onClick={() => handleSuggestionClick(suggestion)}
                     >
                       {suggestion}
@@ -510,11 +362,11 @@ const AIPresentation = ({ onGenerate, onClose }) => {
               </div>
             </div>
             
-            <div className="row mb-3">
-              <div className="col-md-6">
-                <label className="form-label">Phong cách</label>
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="ai-style">Phong cách</label>
                 <select 
-                  className="form-select"
+                  id="ai-style" 
                   value={style}
                   onChange={(e) => setStyle(e.target.value)}
                 >
@@ -527,170 +379,122 @@ const AIPresentation = ({ onGenerate, onClose }) => {
                 </select>
               </div>
               
-              <div className="col-md-6">
-                <label className="form-label">Số lượng slides</label>
-                <div className="d-flex align-items-center">
-                  <input
-                    type="range"
-                    className="form-range me-2"
-                    min="3"
-                    max="15"
-                    value={slideCount}
-                    onChange={(e) => setSlideCount(parseInt(e.target.value))}
-                  />
-                  <span className="badge bg-primary">{slideCount}</span>
-                </div>
+              <div className="form-group">
+                <label htmlFor="ai-slides">Số slides</label>
+                <select 
+                  id="ai-slides" 
+                  value={slideCount}
+                  onChange={(e) => setSlideCount(parseInt(e.target.value))}
+                >
+                  <option value="3">3 slides</option>
+                  <option value="5">5 slides</option>
+                  <option value="7">7 slides</option>
+                  <option value="10">10 slides</option>
+                  <option value="15">15 slides</option>
+                </select>
               </div>
             </div>
             
-            <div className="mb-3">
-              <div className="d-flex justify-content-between align-items-center">
-                <label className="form-label">API Key của OpenAI</label>
-                <button 
-                  className="btn btn-link btn-sm p-0"
-                  type="button"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                >
-                  {showAdvanced ? 'Ẩn tùy chọn nâng cao' : 'Tùy chọn nâng cao'}
-                </button>
-              </div>
-              <input
-                type="password"
-                className="form-control"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-              />
-              <small className="text-muted">API key của bạn được lưu trên trình duyệt, không được gửi lên máy chủ.</small>
+            <div className="form-group">
+              <button 
+                className="toggle-advanced-btn" 
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                {showAdvanced ? 'Ẩn tùy chọn nâng cao' : 'Hiển thị tùy chọn nâng cao'} ▼
+              </button>
             </div>
             
             {showAdvanced && (
-              <div className="card mb-3">
-                <div className="card-header">Tùy chọn nâng cao</div>
-                <div className="card-body">
-                  <div className="row mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">Ngôn ngữ</label>
-                      <select 
-                        className="form-select"
-                        value={language}
-                        onChange={(e) => setLanguage(e.target.value)}
-                      >
-                        <option value="vi">Tiếng Việt</option>
-                        <option value="en">Tiếng Anh</option>
-                        <option value="fr">Tiếng Pháp</option>
-                        <option value="ja">Tiếng Nhật</option>
-                        <option value="ko">Tiếng Hàn</option>
-                        <option value="zh">Tiếng Trung</option>
-                      </select>
-                    </div>
-                    
-                    <div className="col-md-6">
-                      <label className="form-label">Mục đích sử dụng</label>
-                      <select 
-                        className="form-select"
-                        value={purpose}
-                        onChange={(e) => setPurpose(e.target.value)}
-                      >
-                        <option value="business">Kinh doanh / Doanh nghiệp</option>
-                        <option value="education">Giáo dục / Đào tạo</option>
-                        <option value="marketing">Marketing / Truyền thông</option>
-                        <option value="academic">Học thuật / Nghiên cứu</option>
-                        <option value="personal">Cá nhân / Sở thích</option>
-                      </select>
-                    </div>
+              <div className="advanced-options">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="ai-purpose">Mục đích</label>
+                    <select 
+                      id="ai-purpose" 
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
+                    >
+                      <option value="business">Doanh nghiệp</option>
+                      <option value="education">Giáo dục</option>
+                      <option value="marketing">Marketing</option>
+                      <option value="academic">Học thuật</option>
+                      <option value="personal">Cá nhân</option>
+                    </select>
                   </div>
                   
-                  <div className="row mb-3">
-                    <div className="col-md-6">
-                      <label className="form-label">Đối tượng người xem</label>
-                      <select 
-                        className="form-select"
-                        value={audience}
-                        onChange={(e) => setAudience(e.target.value)}
-                      >
-                        <option value="general">Đại chúng</option>
-                        <option value="executive">Lãnh đạo / Quản lý cấp cao</option>
-                        <option value="technical">Chuyên gia kỹ thuật</option>
-                        <option value="student">Học sinh / Sinh viên</option>
-                        <option value="client">Khách hàng / Đối tác</option>
-                      </select>
-                    </div>
-                    
-                    <div className="col-md-6">
-                      <label className="form-label">Thành phần tự động</label>
-                      <div className="mt-2">
-                        <div className="form-check form-check-inline">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="includeCharts"
-                            checked={includeCharts}
-                            onChange={(e) => setIncludeCharts(e.target.checked)}
-                          />
-                          <label className="form-check-label" htmlFor="includeCharts">
-                            Biểu đồ
-                          </label>
-                        </div>
-                        <div className="form-check form-check-inline">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="includeImages"
-                            checked={includeImages}
-                            onChange={(e) => setIncludeImages(e.target.checked)}
-                          />
-                          <label className="form-check-label" htmlFor="includeImages">
-                            Hình ảnh
-                          </label>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="form-group">
+                    <label htmlFor="ai-audience">Đối tượng</label>
+                    <select 
+                      id="ai-audience" 
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                    >
+                      <option value="general">Đại chúng</option>
+                      <option value="executive">Lãnh đạo</option>
+                      <option value="technical">Chuyên gia kỹ thuật</option>
+                      <option value="student">Học sinh/Sinh viên</option>
+                      <option value="client">Khách hàng</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="ai-language">Ngôn ngữ</label>
+                    <select 
+                      id="ai-language" 
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                    >
+                      <option value="vi">Tiếng Việt</option>
+                      <option value="en">Tiếng Anh</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="form-row">
+                  <div className="form-group checkbox-group">
+                    <input 
+                      type="checkbox" 
+                      id="include-charts" 
+                      checked={includeCharts}
+                      onChange={(e) => setIncludeCharts(e.target.checked)}
+                    />
+                    <label htmlFor="include-charts">Thêm biểu đồ tự động</label>
+                  </div>
+                  
+                  <div className="form-group checkbox-group">
+                    <input 
+                      type="checkbox" 
+                      id="include-images" 
+                      checked={includeImages}
+                      onChange={(e) => setIncludeImages(e.target.checked)}
+                    />
+                    <label htmlFor="include-images">Thêm hình ảnh tự động</label>
                   </div>
                 </div>
               </div>
             )}
             
-            {isGenerating && (
-              <div className="mb-3">
-                <label className="form-label">{generationStatus}</label>
-                <div className="progress">
-                  <div 
-                    className="progress-bar progress-bar-striped progress-bar-animated" 
-                    role="progressbar" 
-                    style={{ width: `${progress}%` }}
-                  ></div>
-                </div>
-              </div>
-            )}
+            {error && <div className="error-message">{error}</div>}
+            
+            <div className="form-actions">
+              <button 
+                className="cancel-button" 
+                onClick={onClose}
+              >
+                Hủy
+              </button>
+              <button 
+                className="generate-button" 
+                onClick={handleGenerate}
+                disabled={!topic.trim()}
+              >
+                Tạo bài thuyết trình
+              </button>
+            </div>
           </div>
-          
-          <div className="modal-footer">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onClose}
-              disabled={isGenerating}
-            >
-              Hủy
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleGenerate}
-              disabled={isGenerating}
-            >
-              {isGenerating ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                  Đang tạo...
-                </>
-              ) : (
-                'Tạo bài thuyết trình'
-              )}
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
