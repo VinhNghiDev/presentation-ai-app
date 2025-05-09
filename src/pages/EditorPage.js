@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { exportToPDF, exportToPNG, exportPresentation } from '../utils/exportUtils';
-import { generatePresentation } from '../services/aiService';
-import { enhanceSlideContent } from '../services/openaiService';
+import { generatePresentation, enhanceSlideContent } from '../services/aiService';
+import { AI_CONFIG } from '../services/aiConfig';
 import CollaborationPanel from '../components/Collaboration/CollaborationPanel';
 import IntegrationPanel from '../components/Integration/IntegrationPanel';
 import SharingPanel from '../components/Sharing/SharingPanel';
@@ -155,6 +155,8 @@ const EditorPage = () => {
   const [presentations, setPresentations] = useState([]);
   const [currentPresentation, setCurrentPresentation] = useState(null);
   const [isEditor, setIsEditor] = useState(true);
+  // Thêm vào phần khai báo state
+  const [enhancementStyle, setEnhancementStyle] = useState('improve');
   
   // Khai báo hàm showFeatureTip với useCallback
   const showFeatureTip = useCallback(() => {
@@ -288,89 +290,83 @@ const EditorPage = () => {
     setProgress(0);
     setGenerationStatus("Đang chuẩn bị tạo bài thuyết trình...");
     
+    // Hàm cập nhật tiến trình cho người dùng
+    const updateProgress = (status, percent) => {
+        setGenerationStatus(status);
+        setProgress(Math.min(percent, 100));
+    };
+    
     try {
-      // Tạo đối tượng bài thuyết trình mới
-      const newPresentation = {
-        id: Date.now(),
-        title: aiTopic,
-        slides: [],
-        lastModified: Date.now()
-      };
-      
-      setGenerationStatus("Đang gửi yêu cầu đến AI...");
-      setProgress(10);
-      
-      // Gọi API để tạo bài thuyết trình
-      const options = {
-        topic: aiTopic,
-        style: aiStyle,
-        slides: aiSlideCount,
-        language: aiLanguage,
-        purpose: aiPurpose,
-        audience: aiAudience,
-        includeCharts: aiIncludeCharts,
-        includeImages: aiIncludeImages
-      };
-      
-      const generatedPresentation = await generatePresentation(options);
-      
-      if (!generatedPresentation) {
-        throw new Error('Không nhận được dữ liệu bài thuyết trình');
-      }
-      
-      setGenerationStatus("Đã nhận được nội dung. Đang xử lý slides...");
-      setProgress(50);
-      
-      // Chuyển đổi sang định dạng slide của ứng dụng
-      try {
-        // Kiểm tra xem slideComponentRef.current có tồn tại không
-        if (!slideComponentRef.current) {
-          throw new Error('Không tìm thấy thành phần AIPresentation. Vui lòng tải lại trang.');
-        }
+        updateProgress("Đang thu thập thông tin chuyên sâu về chủ đề...", 10);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Hiển thị trạng thái
         
-        // Truyền các tùy chọn hiển thị cho quá trình chuyển đổi
-        const convertOptions = {
-          style: aiStyle,
-          includeImages: aiIncludeImages,
-          includeCharts: aiIncludeCharts,
-          topic: aiTopic
+        // Chuẩn bị tùy chọn cho bài thuyết trình
+        const options = {
+            topic: aiTopic,
+            style: aiStyle,
+            slides: aiSlideCount,
+            language: aiLanguage,
+            purpose: aiPurpose,
+            audience: aiAudience,
+            includeCharts: aiIncludeCharts,
+            includeImages: aiIncludeImages
         };
         
-        // Gọi hàm chuyển đổi từ AIPresentation
-        const convertedSlides = await slideComponentRef.current.convertToAppSlides(generatedPresentation, convertOptions);
+        updateProgress("Đang liên hệ với AI để tạo nội dung...", 30);
         
-        if (!Array.isArray(convertedSlides)) {
-          throw new Error('Lỗi chuyển đổi slides: Kết quả không phải là mảng');
+        // Gọi service để tạo bài thuyết trình
+        const generatedPresentation = await generatePresentation(options)
+            .catch(error => {
+                console.error("Lỗi khi tạo bài thuyết trình:", error);
+                throw new Error(error.message || "Không thể tạo bài thuyết trình");
+            });
+        
+        updateProgress("Đang xử lý phản hồi từ AI...", 50);
+        
+        if (!generatedPresentation || !generatedPresentation.slides) {
+            throw new Error("Không nhận được dữ liệu hợp lệ từ AI");
         }
         
-        console.log("Đã chuyển đổi thành công", convertedSlides.length, "slides");
-        newPresentation.slides = convertedSlides;
+        updateProgress("Đã nhận được nội dung. Đang chuyển đổi thành slides...", 70);
         
-        // Lưu và cập nhật giao diện
-        setGenerationStatus("Đang lưu bài thuyết trình...");
+        // Tạo bài thuyết trình mới
+        const newPresentation = {
+            id: Date.now(),
+            title: generatedPresentation.title || aiTopic,
+            slides: generatedPresentation.slides,
+            lastModified: Date.now()
+        };
+        
+        // Cập nhật state
         setPresentations(prev => [newPresentation, ...prev]);
         setCurrentPresentation(newPresentation);
+        setSlides(generatedPresentation.slides);
+        setPresentationTitle(generatedPresentation.title || aiTopic);
+        setCurrentSlideIndex(0);
         setIsEditor(true);
+        
+        updateProgress("Đang lưu bài thuyết trình...", 90);
         
         // Lưu vào localStorage
         const savedPresentations = JSON.parse(localStorage.getItem('presentations') || '[]');
         savedPresentations.unshift(newPresentation);
         localStorage.setItem('presentations', JSON.stringify(savedPresentations));
         
-        setGenerationStatus("Bài thuyết trình đã được tạo thành công!");
-        console.log("Hoàn tất quá trình tạo bài thuyết trình");
-      } catch (convertError) {
-        console.error("Lỗi khi chuyển đổi slides:", convertError);
-        setGenerationStatus("Đã xảy ra lỗi khi xử lý dữ liệu slide");
-        alert("Không thể xử lý dữ liệu slide. Chi tiết lỗi: " + convertError.message);
-      }
+        updateProgress("Hoàn thành tạo bài thuyết trình!", 100);
+        
+        // Đóng dialog sau khi hoàn thành
+        setTimeout(() => {
+            setAiDialogOpen(false);
+            setSaveStatus('Bài thuyết trình đã được tạo thành công');
+            setTimeout(() => setSaveStatus(''), 2000);
+        }, 1500);
+        
     } catch (error) {
-      console.error("Lỗi tổng thể khi tạo bài thuyết trình:", error);
-      setGenerationStatus("Đã xảy ra lỗi khi tạo bài thuyết trình");
-      alert("Đã xảy ra lỗi: " + (error.message || "Không thể tạo bài thuyết trình"));
+        console.error("Lỗi khi tạo bài thuyết trình:", error);
+        setGenerationStatus("Đã xảy ra lỗi: " + (error.message || "Không thể tạo bài thuyết trình"));
+        alert("Đã xảy ra lỗi: " + (error.message || "Không thể tạo bài thuyết trình"));
     } finally {
-      setIsGenerating(false);
-      setAiDialogOpen(false); // Đóng dialog sau khi hoàn thành
+        setIsGenerating(false);
     }
   };
   
@@ -378,77 +374,84 @@ const EditorPage = () => {
     setIsEnhancing(true);
     
     try {
-      // Xử lý cải thiện nội dung bằng AI mà không cần API key từ người dùng
-      if (enhancementType === 'content') {
-        // Nâng cao nội dung slide hiện tại
-        const currentSlide = slides[currentSlideIndex];
-        if (currentSlide) {
-          setSaveStatus('Đang cải thiện nội dung slide...');
-          
-          try {
-            // Gọi API để cải thiện nội dung - sử dụng API key hệ thống trong service
-            console.log("EditorPage.js: Gọi enhanceSlideContent cho nội dung:", currentSlide.content?.length || 0, "ký tự");
-            const enhancedContent = await enhanceSlideContent(currentSlide.content);
-            console.log("EditorPage.js: Đã nhận được nội dung được cải thiện:", enhancedContent?.length || 0, "ký tự");
-            
+        // Sửa lỗi: Sử dụng đúng service
+        if (enhancementType === 'content') {
+            // Nâng cao nội dung slide hiện tại
+            const currentSlide = slides[currentSlideIndex];
+            if (currentSlide) {
+                setSaveStatus('Đang cải thiện nội dung slide...');
+                
+                try {
+                    // Sử dụng enhanceSlideContent từ aiService thay vì openaiService
+                    const enhancedContent = await enhanceSlideContent(
+                        currentSlide.content,
+                        enhancementStyle, // Thêm tùy chọn phong cách
+                        AI_CONFIG.defaultProvider
+                    );
+                    
+                    const updatedSlides = [...slides];
+                    updatedSlides[currentSlideIndex] = {
+                        ...currentSlide,
+                        content: enhancedContent
+                    };
+                    
+                    setSlides(updatedSlides);
+                    setSaveStatus('Nội dung đã được cải thiện thành công');
+                    setTimeout(() => setSaveStatus(''), 2000);
+                } catch (error) {
+                    console.error('Lỗi khi cải thiện nội dung:', error);
+                    alert('Không thể cải thiện nội dung slide.');
+                }
+            }
+        } else if (enhancementType === 'all') {
+            // Nâng cao nội dung tất cả slide
+            const totalSlides = slides.length;
             const updatedSlides = [...slides];
-            updatedSlides[currentSlideIndex] = {
-              ...currentSlide,
-              content: enhancedContent
-            };
+            
+            for (let i = 0; i < totalSlides; i++) {
+                const slide = updatedSlides[i];
+                if (!slide.content || slide.content.trim() === '') continue;
+                
+                setSaveStatus(`Đang cải thiện slide ${i+1}/${totalSlides}...`);
+                
+                try {
+                    const enhancedContent = await enhanceSlideContent(
+                        slide.content,
+                        enhancementStyle,
+                        AI_CONFIG.defaultProvider
+                    );
+                    
+                    updatedSlides[i] = {
+                        ...slide,
+                        content: enhancedContent
+                    };
+                    
+                    // Cập nhật UI để hiển thị tiến trình
+                    setProgress(Math.floor((i + 1) / totalSlides * 100));
+                } catch (error) {
+                    console.error(`Lỗi khi cải thiện slide ${i+1}:`, error);
+                    continue;
+                }
+            }
             
             setSlides(updatedSlides);
-            setSaveStatus('Nội dung đã được cải thiện thành công');
+            setSaveStatus('Tất cả slide đã được cải thiện thành công');
             setTimeout(() => setSaveStatus(''), 2000);
-          } catch (error) {
-            console.error('Lỗi khi cải thiện nội dung:', error);
-            alert('Không thể cải thiện nội dung slide. Hệ thống sẽ thử lại sau.');
-          }
-        }
-      } else if (enhancementType === 'all') {
-        // Nâng cao nội dung tất cả slide
-        const updatedSlides = [...slides];
-        
-        for (let i = 0; i < updatedSlides.length; i++) {
-          const slide = updatedSlides[i];
-          // Bỏ qua slide không có nội dung
-          if (!slide.content || slide.content.trim() === '') {
-            continue;
-          }
-          
-          setSaveStatus(`Đang cải thiện slide ${i+1}/${updatedSlides.length}...`);
-          
-          try {
-            // Gọi API để cải thiện nội dung - sử dụng API key hệ thống trong service
-            console.log(`EditorPage.js: Cải thiện slide ${i+1} với nội dung:`, slide.content?.length || 0, "ký tự");
-            const enhancedContent = await enhanceSlideContent(slide.content);
-            console.log(`EditorPage.js: Đã nhận được nội dung cải thiện cho slide ${i+1}:`, enhancedContent?.length || 0, "ký tự");
-            
-            updatedSlides[i] = {
-              ...slide,
-              content: enhancedContent
-            };
-          } catch (error) {
-            console.error(`Lỗi khi cải thiện slide ${i+1}:`, error);
-            // Tiếp tục với slide tiếp theo
-            continue;
-          }
         }
         
-        setSlides(updatedSlides);
-        setSaveStatus('Tất cả slide đã được cải thiện thành công');
-        setTimeout(() => setSaveStatus(''), 2000);
-      }
-      
-      // Đóng dialog
-      setShowAIEnhanceDialog(false);
+        // Tự động lưu sau khi cải thiện
+        handleSave();
+        
+        // Đóng dialog
+        setShowAIEnhanceDialog(false);
     } catch (error) {
-      console.error('Error enhancing content:', error);
-      alert('Có lỗi xảy ra khi cải thiện nội dung: ' + (error.message || 'Lỗi không xác định'));
+        console.error('Error enhancing content:', error);
+        alert('Có lỗi xảy ra khi cải thiện nội dung: ' + (error.message || 'Lỗi không xác định'));
     } finally {
-      setIsEnhancing(false);
+        setIsEnhancing(false);
+        setProgress(0);
     }
-  };
+};
 
   const handleSelectTemplate = (templateId) => {
     const template = templates.find(t => t.id === templateId) || templates[0];
@@ -637,17 +640,26 @@ const EditorPage = () => {
   };
 
   const handleDragStart = (e, elementId) => {
-    e.preventDefault();
+    e.stopPropagation();
     
-    // Select the element if it's not already selected
-    if (selectedElementId !== elementId) {
-      selectElement(elementId);
+    if (!slides || !slides[currentSlideIndex]) {
+      console.error("Không tìm thấy slide hiện tại");
+      return;
     }
     
     const currentSlide = slides[currentSlideIndex];
     const element = currentSlide.elements.find(el => el.id === elementId);
     
-    if (!element) return;
+    if (!element) {
+      console.error(`Không tìm thấy phần tử với id ${elementId}`);
+      return;
+    }
+    
+    // Đảm bảo element.position tồn tại
+    if (!element.position) {
+      console.error(`Phần tử ${elementId} không có thuộc tính position`);
+      element.position = { x: 0, y: 0 };
+    }
     
     // Store the initial position and mouse coords for drag calculations
     const startX = e.clientX;
@@ -2191,18 +2203,249 @@ const EditorPage = () => {
       </div>
 
       {/* AI Dialog */}
-      <AIPresentation 
-        isVisible={aiDialogOpen}
-        onGenerate={(presentationData) => {
-          setAiDialogOpen(false);
-          if (presentationData && presentationData.slides) {
-            setSlides(presentationData.slides);
-            setPresentationTitle(presentationData.title);
-            setCurrentSlideIndex(0);
-          }
-        }}
-        onClose={() => setAiDialogOpen(false)}
-      />
+      {aiDialogOpen && (
+        <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">
+                  <i className="bi bi-stars me-2"></i>
+                  Tạo bài thuyết trình bằng AI
+                </h5>
+                <button
+                  className="btn-close btn-close-white"
+                  onClick={() => setAiDialogOpen(false)}
+                  disabled={isGenerating}
+                />
+              </div>
+              <div className="modal-body">
+                {/* Hiển thị tiến trình */}
+                {isGenerating && (
+                  <div className="mb-4">
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>{generationStatus}</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <div className="progress">
+                      <div 
+                        className="progress-bar progress-bar-striped progress-bar-animated" 
+                        role="progressbar" 
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Hướng dẫn chính */}
+                {!isGenerating && (
+                  <div className="alert alert-primary mb-4">
+                    <div className="d-flex">
+                      <i className="bi bi-lightbulb-fill fs-4 me-3 mt-1"></i>
+                      <div>
+                        <h6 className="mb-2">Tạo bài thuyết trình chuyên nghiệp chỉ với vài bước đơn giản</h6>
+                        <p className="mb-0">Nhập chủ đề chi tiết và AI sẽ tạo nội dung chất lượng cao với case studies, dữ liệu thị trường và xu hướng hiện tại. Càng chi tiết càng tốt!</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Form nhập thông tin */}
+                <div className="mb-3">
+                  <label htmlFor="aiTopic" className="form-label fw-bold">Chủ đề bài thuyết trình *</label>
+                  <input
+                    type="text"
+                    className="form-control form-control-lg"
+                    id="aiTopic"
+                    value={aiTopic}
+                    onChange={(e) => setAiTopic(e.target.value)}
+                    placeholder="Nhập chủ đề chi tiết, càng cụ thể càng tốt"
+                    disabled={isGenerating}
+                  />
+                  <div className="form-text">
+                    <i className="bi bi-info-circle me-1"></i>
+                    Gợi ý: "Xu hướng Digital Marketing 2023 cho doanh nghiệp vừa và nhỏ" sẽ cho kết quả tốt hơn "Digital Marketing"
+                  </div>
+                </div>
+                
+                {/* Các tùy chọn nâng cao theo tabs */}
+                <div className="card mb-3">
+                  <div className="card-header">
+                    <ul className="nav nav-tabs card-header-tabs">
+                      <li className="nav-item">
+                        <button className="nav-link active" type="button">
+                          <i className="bi bi-gear me-1"></i> Cài đặt cơ bản
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="card-body">
+                    <div className="row">
+                      <div className="col-md-6 mb-3">
+                        <label htmlFor="aiStyle" className="form-label">Phong cách</label>
+                        <select
+                          className="form-select"
+                          id="aiStyle"
+                          value={aiStyle}
+                          onChange={(e) => setAiStyle(e.target.value)}
+                          disabled={isGenerating}
+                        >
+                          <option value="professional">Chuyên nghiệp</option>
+                          <option value="creative">Sáng tạo</option>
+                          <option value="minimal">Tối giản</option>
+                          <option value="academic">Học thuật</option>
+                          <option value="nature">Thiên nhiên</option>
+                          <option value="tech">Công nghệ</option>
+                        </select>
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label htmlFor="aiSlideCount" className="form-label">Số lượng slide</label>
+                        <div className="d-flex align-items-center">
+                          <input
+                            type="range"
+                            className="form-range me-2 flex-grow-1"
+                            min="5"
+                            max="15"
+                            id="aiSlideCount"
+                            value={aiSlideCount}
+                            onChange={(e) => setAiSlideCount(parseInt(e.target.value))}
+                            disabled={isGenerating}
+                          />
+                          <span className="badge bg-primary">{aiSlideCount}</span>
+                        </div>
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label htmlFor="aiPurpose" className="form-label">Mục đích</label>
+                        <select
+                          className="form-select"
+                          id="aiPurpose"
+                          value={aiPurpose}
+                          onChange={(e) => setAiPurpose(e.target.value)}
+                          disabled={isGenerating}
+                        >
+                          <option value="business">Kinh doanh</option>
+                          <option value="education">Giáo dục</option>
+                          <option value="marketing">Marketing</option>
+                          <option value="academic">Nghiên cứu</option>
+                          <option value="personal">Cá nhân</option>
+                        </select>
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label htmlFor="aiAudience" className="form-label">Đối tượng</label>
+                        <select
+                          className="form-select"
+                          id="aiAudience"
+                          value={aiAudience}
+                          onChange={(e) => setAiAudience(e.target.value)}
+                          disabled={isGenerating}
+                        >
+                          <option value="general">Đại chúng</option>
+                          <option value="executive">Lãnh đạo cấp cao</option>
+                          <option value="technical">Chuyên gia kỹ thuật</option>
+                          <option value="student">Học sinh/Sinh viên</option>
+                          <option value="client">Khách hàng</option>
+                        </select>
+                      </div>
+                      <div className="col-12">
+                        <div className="d-flex align-items-center">
+                          <div className="form-check form-switch me-4">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id="aiIncludeCharts"
+                              checked={aiIncludeCharts}
+                              onChange={(e) => setAiIncludeCharts(e.target.checked)}
+                              disabled={isGenerating}
+                            />
+                            <label className="form-check-label" htmlFor="aiIncludeCharts">
+                              <i className="bi bi-bar-chart me-1"></i> Bao gồm biểu đồ
+                            </label>
+                          </div>
+                          <div className="form-check form-switch">
+                            <input
+                              className="form-check-input"
+                              type="checkbox"
+                              id="aiIncludeImages"
+                              checked={aiIncludeImages}
+                              onChange={(e) => setAiIncludeImages(e.target.checked)}
+                              disabled={isGenerating}
+                            />
+                            <label className="form-check-label" htmlFor="aiIncludeImages">
+                              <i className="bi bi-image me-1"></i> Bao gồm hình ảnh
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Gợi ý chủ đề */}
+                {!isGenerating && (
+                  <div>
+                    <label className="form-label fw-bold">Gợi ý chủ đề</label>
+                    <div className="d-flex flex-wrap gap-2">
+                      <button 
+                        className="btn btn-sm btn-outline-secondary" 
+                        onClick={() => setAiTopic('Xu hướng Digital Marketing 2024 cho doanh nghiệp vừa và nhỏ')}
+                        type="button"
+                      >
+                        Digital Marketing 2024
+                      </button>
+                      <button 
+                        className="btn btn-sm btn-outline-secondary" 
+                        onClick={() => setAiTopic('Ứng dụng AI trong cải thiện trải nghiệm khách hàng')}
+                        type="button"
+                      >
+                        AI & Trải nghiệm khách hàng
+                      </button>
+                      <button 
+                        className="btn btn-sm btn-outline-secondary" 
+                        onClick={() => setAiTopic('Chiến lược phát triển bền vững cho doanh nghiệp')}
+                        type="button"
+                      >
+                        Phát triển bền vững
+                      </button>
+                      <button 
+                        className="btn btn-sm btn-outline-secondary" 
+                        onClick={() => setAiTopic('Kỹ năng thuyết trình và giao tiếp hiệu quả')}
+                        type="button"
+                      >
+                        Kỹ năng thuyết trình
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setAiDialogOpen(false)}
+                  disabled={isGenerating}
+                >
+                  Hủy
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleAIGenerate}
+                  disabled={isGenerating || !aiTopic}
+                >
+                  {isGenerating ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Đang tạo...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-magic me-2"></i>
+                      Tạo bài thuyết trình
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Collaboration Panel */}
       {showCollaborationPanel && (
@@ -2249,6 +2492,23 @@ const EditorPage = () => {
                 ></button>
               </div>
               <div className="modal-body">
+                {/* Hiển thị tiến trình */}
+                {isEnhancing && (
+                  <div className="mb-4">
+                    <div className="d-flex justify-content-between mb-2">
+                      <span>{saveStatus}</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <div className="progress">
+                      <div 
+                        className="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                        role="progressbar" 
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="alert alert-info mb-4">
                   <div className="d-flex">
                     <i className="bi bi-lightbulb-fill fs-4 me-3 mt-1"></i>
@@ -2259,44 +2519,128 @@ const EditorPage = () => {
                   </div>
                 </div>
                 
-                <div className="card border-light mb-4">
-                  <div className="card-body">
-                    <h6 className="card-title mb-3">Phạm vi cải thiện</h6>
-                    
-                    <div className="d-flex justify-content-center">
-                      <div className="btn-group" role="group" style={{ width: '80%' }}>
-                        <input
-                          type="radio"
-                          className="btn-check"
-                          name="enhancementType"
-                          id="enhanceCurrentSlide"
-                          value="content"
-                          checked={enhancementType === 'content'}
-                          onChange={(e) => setEnhancementType(e.target.value)}
-                          disabled={isEnhancing}
-                          autoComplete="off"
-                        />
-                        <label className="btn btn-outline-primary" htmlFor="enhanceCurrentSlide">
-                          <i className="bi bi-file-earmark-text me-2"></i>
-                          Slide hiện tại
-                        </label>
-                        
-                        <input
-                          type="radio"
-                          className="btn-check"
-                          name="enhancementType"
-                          id="enhanceAllSlides"
-                          value="all"
-                          checked={enhancementType === 'all'}
-                          onChange={(e) => setEnhancementType(e.target.value)}
-                          disabled={isEnhancing}
-                          autoComplete="off"
-                        />
-                        <label className="btn btn-outline-primary" htmlFor="enhanceAllSlides">
-                          <i className="bi bi-files me-2"></i>
-                          Tất cả slide
-                        </label>
-                      </div>
+                <div className="mb-3">
+                  <label className="form-label fw-bold">Phạm vi cải thiện</label>
+                  <div className="d-flex justify-content-center">
+                    <div className="btn-group" role="group" style={{ width: '80%' }}>
+                      <input
+                        type="radio"
+                        className="btn-check"
+                        name="enhancementType"
+                        id="enhanceCurrentSlide"
+                        value="content"
+                        checked={enhancementType === 'content'}
+                        onChange={(e) => setEnhancementType(e.target.value)}
+                        disabled={isEnhancing}
+                        autoComplete="off"
+                      />
+                      <label className="btn btn-outline-primary" htmlFor="enhanceCurrentSlide">
+                        <i className="bi bi-file-earmark-text me-2"></i>
+                        Slide hiện tại
+                      </label>
+                      
+                      <input
+                        type="radio"
+                        className="btn-check"
+                        name="enhancementType"
+                        id="enhanceAllSlides"
+                        value="all"
+                        checked={enhancementType === 'all'}
+                        onChange={(e) => setEnhancementType(e.target.value)}
+                        disabled={isEnhancing}
+                        autoComplete="off"
+                      />
+                      <label className="btn btn-outline-primary" htmlFor="enhanceAllSlides">
+                        <i className="bi bi-files me-2"></i>
+                        Tất cả slide
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Thêm tùy chọn phong cách cải thiện */}
+                <div className="mb-3">
+                  <label className="form-label fw-bold">Phong cách cải thiện</label>
+                  <div className="row">
+                    <div className="col-md-4 mb-2">
+                      <input 
+                        type="radio" 
+                        className="btn-check" 
+                        name="enhancementStyle" 
+                        id="style-improve" 
+                        value="improve"
+                        checked={enhancementStyle === 'improve'} 
+                        onChange={(e) => setEnhancementStyle(e.target.value)}
+                        disabled={isEnhancing}
+                      />
+                      <label className="btn btn-outline-info w-100" htmlFor="style-improve">
+                        <i className="bi bi-arrow-up-circle me-2"></i>
+                        Cải thiện tổng thể
+                      </label>
+                    </div>
+                    <div className="col-md-4 mb-2">
+                      <input 
+                        type="radio" 
+                        className="btn-check" 
+                        name="enhancementStyle" 
+                        id="style-concise" 
+                        value="concise"
+                        checked={enhancementStyle === 'concise'} 
+                        onChange={(e) => setEnhancementStyle(e.target.value)}
+                        disabled={isEnhancing}
+                      />
+                      <label className="btn btn-outline-info w-100" htmlFor="style-concise">
+                        <i className="bi bi-list-check me-2"></i>
+                        Súc tích hơn
+                      </label>
+                    </div>
+                    <div className="col-md-4 mb-2">
+                      <input 
+                        type="radio" 
+                        className="btn-check" 
+                        name="enhancementStyle" 
+                        id="style-elaborate" 
+                        value="elaborate"
+                        checked={enhancementStyle === 'elaborate'} 
+                        onChange={(e) => setEnhancementStyle(e.target.value)}
+                        disabled={isEnhancing}
+                      />
+                      <label className="btn btn-outline-info w-100" htmlFor="style-elaborate">
+                        <i className="bi bi-journals me-2"></i>
+                        Chi tiết hơn
+                      </label>
+                    </div>
+                    <div className="col-md-4 mb-2">
+                      <input 
+                        type="radio" 
+                        className="btn-check" 
+                        name="enhancementStyle" 
+                        id="style-professional" 
+                        value="professional"
+                        checked={enhancementStyle === 'professional'} 
+                        onChange={(e) => setEnhancementStyle(e.target.value)}
+                        disabled={isEnhancing}
+                      />
+                      <label className="btn btn-outline-info w-100" htmlFor="style-professional">
+                        <i className="bi bi-briefcase me-2"></i>
+                        Chuyên nghiệp
+                      </label>
+                    </div>
+                    <div className="col-md-4 mb-2">
+                      <input 
+                        type="radio" 
+                        className="btn-check" 
+                        name="enhancementStyle" 
+                        id="style-creative" 
+                        value="creative"
+                        checked={enhancementStyle === 'creative'} 
+                        onChange={(e) => setEnhancementStyle(e.target.value)}
+                        disabled={isEnhancing}
+                      />
+                      <label className="btn btn-outline-info w-100" htmlFor="style-creative">
+                        <i className="bi bi-lightbulb me-2"></i>
+                        Sáng tạo
+                      </label>
                     </div>
                   </div>
                 </div>

@@ -1,5 +1,12 @@
 // Dịch vụ AI cho tính năng tạo nội dung tự động
-import { generatePresentation as generateOpenAIPresentation } from './openaiService';
+import { generateCompletion, generateChatCompletion, callAiApi } from './multiAiService';
+import { 
+  AI_CONFIG, 
+  AI_PROVIDERS, 
+  getDefaultModel, 
+  getFallbackModel,
+  hasValidApiKey
+} from './aiConfig';
 import { 
   gatherKnowledgeForTopic, 
   generateReferences, 
@@ -8,9 +15,6 @@ import {
   generateTrendsContent
 } from './knowledgeService';
 
-// Cấu hình API key từ biến môi trường hoặc cấu hình
-const SYSTEM_API_KEY = process.env.REACT_APP_OPENAI_API_KEY || '';
-
 /**
  * Tạo bài thuyết trình tự động dựa trên chủ đề và tùy chọn
  * @param {Object} options - Các tùy chọn cho bài thuyết trình
@@ -18,7 +22,15 @@ const SYSTEM_API_KEY = process.env.REACT_APP_OPENAI_API_KEY || '';
  */
 export const generatePresentation = async (options) => {
     console.log("aiService.js: Bắt đầu tạo bài thuyết trình", options);
-    const { topic, style, slides, language = 'vi', purpose = 'business', audience = 'general' } = options;
+    const { 
+      topic, 
+      style, 
+      slides, 
+      language = 'vi', 
+      purpose = 'business', 
+      audience = 'general',
+      provider = AI_CONFIG.defaultProvider 
+    } = options;
     
     try {
         console.log("aiService.js: Thu thập kiến thức cho chủ đề:", topic);
@@ -26,19 +38,65 @@ export const generatePresentation = async (options) => {
         const knowledge = gatherKnowledgeForTopic(topic);
         console.log("aiService.js: Đã thu thập kiến thức:", knowledge.domain);
         
-        console.log("aiService.js: Sử dụng OpenAI để tạo bài thuyết trình");
+        // Tạo prompt cho AI để tạo bài thuyết trình
+        const prompt = createPresentationPrompt({
+          ...options,
+          knowledge
+        });
         
-        // Gửi API key và kiến thức bổ sung tới dịch vụ OpenAI
-        const optionsWithKnowledge = {
-            ...options,
-            apiKey: SYSTEM_API_KEY,
-            knowledge: knowledge
-        };
+        // Cấu hình system message
+        const systemMessage = `Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp, chất lượng cao. 
+Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. 
+Bạn tạo nội dung phân tích sâu, sử dụng dữ liệu thực tế, case studies, và xu hướng hiện tại. 
+Luôn trả về JSON theo định dạng yêu cầu, không thêm bất kỳ văn bản giải thích nào trước hoặc sau JSON.`;
         
-        // Gọi OpenAI API với kiến thức đã thu thập
-        console.log("aiService.js: Đang gọi OpenAI API...");
-        const presentationData = await generateOpenAIPresentation(optionsWithKnowledge, SYSTEM_API_KEY);
-        console.log("aiService.js: Đã nhận được phản hồi từ OpenAI", presentationData?.slides?.length || 0, "slides");
+        // Xác định model dựa trên provider
+        const model = options.model || getDefaultModel(provider);
+        
+        // Sử dụng multiAiService để gọi AI API
+        console.log(`aiService.js: Gọi AI API (${provider}, model: ${model})...`);
+        
+        // Chuẩn bị messages cho API
+        const messages = [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: prompt }
+        ];
+        
+        // Gọi AI API qua multiAiService
+        const aiResponse = await generateChatCompletion(messages, {
+          model,
+          temperature: 0.7,
+          maxTokens: 4000,
+          provider
+        });
+        
+        console.log("aiService.js: Đã nhận được phản hồi từ AI");
+        
+        // Phân tích JSON từ phản hồi
+        let presentationData;
+        try {
+            // Phân tích cú pháp JSON từ phản hồi
+            const jsonStartIndex = aiResponse.indexOf('{');
+            const jsonEndIndex = aiResponse.lastIndexOf('}') + 1;
+            
+            if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+                const jsonContent = aiResponse.substring(jsonStartIndex, jsonEndIndex);
+                try {
+                    presentationData = JSON.parse(jsonContent);
+                } catch (parseError) {
+                    console.error("aiService.js: Lỗi phân tích JSON:", parseError);
+                    console.log("aiService.js: JSON không hợp lệ, sử dụng dữ liệu mẫu");
+                    return createFallbackPresentation(options, knowledge);
+                }
+            } else {
+                console.warn("aiService.js: Không tìm thấy JSON trong phản hồi");
+                console.log("aiService.js: Phản hồi nhận được:", aiResponse);
+                return createFallbackPresentation(options, knowledge);
+            }
+        } catch (jsonError) {
+            console.error("aiService.js: Lỗi phân tích JSON:", jsonError);
+            return createFallbackPresentation(options, knowledge);
+        }
         
         // Kiểm tra dữ liệu trả về để đảm bảo rằng slides là một mảng
         if (!presentationData || !presentationData.slides) {
@@ -61,7 +119,14 @@ export const generatePresentation = async (options) => {
         return {
             title: presentationData.title || topic,
             description: presentationData.description || `Bài thuyết trình chuyên sâu về ${topic}`,
-            slides: enhancedSlides
+            slides: enhancedSlides,
+            metadata: {
+                created: new Date().toISOString(),
+                provider,
+                model,
+                topic,
+                slides: slides || enhancedSlides.length
+            }
         };
     } catch (error) {
         console.error("aiService.js: Lỗi khi tạo bài thuyết trình:", error);
@@ -72,6 +137,224 @@ export const generatePresentation = async (options) => {
         return createFallbackPresentation(options, knowledge);
     }
 };
+
+/**
+ * Nâng cao nội dung slide
+ * @param {string} content - Nội dung slide cần nâng cao
+ * @param {string} type - Loại nâng cao (improve, concise, elaborate, professional, creative)
+ * @param {string} provider - Provider AI để sử dụng
+ * @returns {Promise<string>} - Nội dung đã được nâng cao
+ */
+export const enhanceSlideContent = async (content, type = 'improve', provider = AI_CONFIG.defaultProvider) => {
+    try {
+        console.log(`aiService.js: Nâng cao nội dung slide (${type})`);
+        
+        // Xây dựng prompt tùy thuộc vào loại nâng cao
+        let prompt;
+        let systemPrompt;
+        
+        switch (type) {
+            case 'concise':
+                systemPrompt = 'Bạn là chuyên gia tóm tắt và viết nội dung súc tích. Hãy giữ lại các thông tin quan trọng nhất.';
+                prompt = `Hãy tóm tắt và làm súc tích nội dung sau đây, đảm bảo giữ lại những điểm quan trọng nhất và ý tưởng chính:\n\n${content}`;
+                break;
+            case 'elaborate':
+                systemPrompt = 'Bạn là chuyên gia mở rộng và bổ sung chi tiết cho nội dung. Hãy làm nội dung phong phú và đầy đủ hơn.';
+                prompt = `Hãy mở rộng và bổ sung chi tiết cho nội dung sau đây, làm cho nó phong phú và đầy đủ hơn với dữ liệu, ví dụ và thông tin bổ sung:\n\n${content}`;
+                break;
+            case 'professional':
+                systemPrompt = 'Bạn là chuyên gia viết nội dung chuyên nghiệp. Hãy sử dụng ngôn ngữ trang trọng và chuyên nghiệp.';
+                prompt = `Hãy viết lại nội dung sau đây theo phong cách chuyên nghiệp và trang trọng hơn, phù hợp với môi trường doanh nghiệp hoặc học thuật:\n\n${content}`;
+                break;
+            case 'creative':
+                systemPrompt = 'Bạn là chuyên gia viết nội dung sáng tạo. Hãy sử dụng ngôn ngữ sinh động và hấp dẫn.';
+                prompt = `Hãy viết lại nội dung sau đây theo phong cách sáng tạo và hấp dẫn hơn, sử dụng ngôn ngữ sinh động và thu hút người đọc:\n\n${content}`;
+                break;
+            default:
+                systemPrompt = 'Bạn là chuyên gia cải thiện nội dung bài thuyết trình. Hãy nâng cao chất lượng nội dung.';
+                prompt = `Hãy cải thiện nội dung sau đây, làm cho nó rõ ràng, dễ hiểu và có tính thuyết phục hơn mà không thay đổi ý nghĩa chính:\n\n${content}`;
+        }
+        
+        // Sử dụng multiAiService để gọi AI API
+        console.log(`aiService.js: Gọi AI API (${provider}) để nâng cao nội dung`);
+        
+        const enhancedContent = await generateCompletion(prompt, {
+            systemPrompt,
+            temperature: 0.7,
+            maxTokens: 2000,
+            provider
+        });
+        
+        return enhancedContent;
+    } catch (error) {
+        console.error('Lỗi khi nâng cao nội dung slide:', error);
+        // Trả về nội dung gốc nếu có lỗi
+        return content;
+    }
+};
+
+/**
+ * Tạo prompt cho bài thuyết trình
+ * @param {Object} options - Các tùy chọn cho bài thuyết trình
+ * @returns {string} - Prompt hoàn chỉnh
+ */
+function createPresentationPrompt(options) {
+  const { 
+    topic, 
+    style, 
+    slides, 
+    language = 'vi',
+    purpose = 'business',
+    audience = 'general',
+    includeCharts = true,
+    includeImages = true,
+    knowledge = null // Dữ liệu bổ sung từ knowledgeService
+  } = options;
+  
+  let styleDescription = '';
+  switch (style) {
+    case 'professional':
+      styleDescription = 'Chuyên nghiệp, súc tích, rõ ràng, phù hợp trong môi trường doanh nghiệp';
+      break;
+    case 'creative':
+      styleDescription = 'Sáng tạo, hấp dẫn, với ngôn ngữ sinh động và ý tưởng độc đáo';
+      break;
+    case 'minimal':
+      styleDescription = 'Tối giản, chỉ những thông tin thiết yếu, trình bày đơn giản';
+      break;
+    case 'academic':
+      styleDescription = 'Học thuật, chính xác, có trích dẫn và thuật ngữ chuyên ngành';
+      break;
+    case 'nature':
+      styleDescription = 'Lấy cảm hứng từ thiên nhiên, thân thiện với môi trường, nhẹ nhàng';
+      break;
+    case 'tech':
+      styleDescription = 'Định hướng công nghệ, hiện đại, đổi mới, tập trung vào xu hướng mới';
+      break;
+    default:
+      styleDescription = 'Chuyên nghiệp và dễ hiểu';
+  }
+  
+  let audienceDescription = '';
+  switch (audience) {
+    case 'executive':
+      audienceDescription = 'Lãnh đạo và quản lý cấp cao, tập trung vào chiến lược và kết quả. Họ quan tâm đến tác động kinh doanh, ROI và định hướng dài hạn.';
+      break;
+    case 'technical':
+      audienceDescription = 'Chuyên gia kỹ thuật, có kiến thức chuyên môn trong lĩnh vực. Họ đánh giá cao chi tiết kỹ thuật, dữ liệu cụ thể và phân tích sâu.';
+      break;
+    case 'student':
+      audienceDescription = 'Học sinh và sinh viên, nội dung giáo dục và dễ tiếp cận. Họ cần các khái niệm được giải thích rõ ràng với ví dụ thực tế.';
+      break;
+    case 'client':
+      audienceDescription = 'Khách hàng và đối tác, tập trung vào giá trị và lợi ích. Họ quan tâm đến giải pháp cho vấn đề của họ và ROI.';
+      break;
+    default:
+      audienceDescription = 'Đối tượng đại chúng với nhiều cấp độ hiểu biết khác nhau, cần thông tin cân bằng giữa chuyên môn và khả năng tiếp cận.';
+  }
+  
+  let purposeDescription = '';
+  switch (purpose) {
+    case 'education':
+      purposeDescription = 'Giáo dục và đào tạo, truyền đạt kiến thức. Mục tiêu là làm cho người nghe hiểu rõ chủ đề và có thể áp dụng kiến thức.';
+      break;
+    case 'marketing':
+      purposeDescription = 'Marketing và truyền thông, thuyết phục và thu hút. Mục tiêu là tạo ấn tượng và khuyến khích hành động cụ thể.';
+      break;
+    case 'academic':
+      purposeDescription = 'Nghiên cứu học thuật, báo cáo khoa học. Mục tiêu là trình bày phát hiện, phương pháp nghiên cứu và đóng góp cho lĩnh vực.';
+      break;
+    case 'personal':
+      purposeDescription = 'Sử dụng cá nhân, chia sẻ thông tin hoặc kỹ năng. Mục tiêu là kết nối với người nghe và truyền cảm hứng.';
+      break;
+    default:
+      purposeDescription = 'Sử dụng trong môi trường doanh nghiệp và công việc. Mục tiêu là cung cấp thông tin, hỗ trợ quyết định và thúc đẩy kết quả kinh doanh.';
+  }
+  
+  // Bổ sung thông tin về biểu đồ và hình ảnh
+  const mediaGuidance = `
+Hướng dẫn về phương tiện trực quan:
+- ${includeCharts ? 'Đề xuất dữ liệu biểu đồ thống kê cụ thể cho các slide có nội dung phù hợp, đặc biệt cho các slide về so sánh, thị trường, xu hướng, kết quả nghiên cứu, bao gồm cả số liệu thực tế.' : 'Không đề xuất biểu đồ.'}
+- ${includeImages ? 'Đề xuất từ khóa hình ảnh phù hợp cho mỗi slide, tập trung vào hình ảnh có tính biểu tượng và minh họa cao.' : 'Không đề xuất hình ảnh.'}
+`;
+
+  // Bổ sung yêu cầu về cấu trúc slide đặc biệt
+  const specialSlideRequests = `
+Yêu cầu về cấu trúc bài thuyết trình:
+1. Slide đầu tiên: Trang bìa với tiêu đề thu hút, tên người trình bày, và statement ngắn về giá trị của bài thuyết trình.
+2. Slide thứ hai: Outline/Mục lục rõ ràng với các phần chính của bài thuyết trình.
+3. Slide giới thiệu: Đặt vấn đề, tạo sự quan tâm, và thiết lập bối cảnh.
+4. Slide nội dung chính: Phân tích sâu với dữ liệu cụ thể, ví dụ thực tế, và so sánh.
+5. Slide case study: Ít nhất một nghiên cứu trường hợp điển hình liên quan đến chủ đề.
+6. Slide xu hướng: Phân tích xu hướng hiện tại và tương lai của lĩnh vực.
+7. Slide thách thức & giải pháp: Thảo luận về thách thức và đề xuất giải pháp cụ thể.
+8. Slide kết luận: Tóm tắt các điểm chính, tái khẳng định thông điệp chính.
+9. Slide Call-to-Action: Các bước tiếp theo cụ thể mà người nghe nên thực hiện.
+10. Slide Q&A: Chuẩn bị câu hỏi gợi ý để thảo luận.
+11. Slide tài liệu tham khảo: Liệt kê nguồn thông tin đáng tin cậy đã sử dụng.
+`;
+
+  // Nếu có dữ liệu từ knowledgeService, thêm nó vào prompt
+  let knowledgePrompt = '';
+  if (knowledge) {
+    knowledgePrompt = `
+Thông tin bổ sung cho bài thuyết trình:
+
+Thống kê thị trường:
+${knowledge.statistics.map(stat => `- ${stat.metric}: ${stat.value} (Nguồn: ${stat.source})`).join('\n')}
+
+Nghiên cứu trường hợp điển hình:
+${knowledge.caseStudies.map(cs => `- ${cs.company} (${cs.industry}): ${cs.challenge} -> ${cs.solution} -> ${cs.results}`).join('\n')}
+
+Xu hướng ngành hiện tại:
+${knowledge.trends.map(trend => `- ${trend}`).join('\n')}
+
+Nguồn tham khảo đáng tin cậy:
+${knowledge.sources.map(source => `- ${source.name}: ${source.url}`).join('\n')}
+`;
+  }
+
+  return `
+Tạo một bài thuyết trình chuyên nghiệp, chi tiết và có chiều sâu về chủ đề "${topic}" với ${slides} slides.
+
+Thông tin cơ bản:
+- Phong cách: ${styleDescription}
+- Đối tượng: ${audienceDescription}
+- Mục đích: ${purposeDescription}
+- Ngôn ngữ: ${language === 'vi' ? 'Tiếng Việt' : language === 'en' ? 'Tiếng Anh' : `${language}`}
+${mediaGuidance}
+
+${specialSlideRequests}
+
+${knowledgePrompt}
+
+Yêu cầu về chất lượng nội dung:
+1. Độ sâu: Phân tích chuyên sâu từng khía cạnh của chủ đề, không chỉ dừng ở thông tin bề mặt.
+2. Dữ liệu cụ thể: Sử dụng số liệu, thống kê và dữ liệu thực tế từ các nguồn đáng tin cậy.
+3. Case studies: Cung cấp ít nhất 1-2 ví dụ thực tế điển hình liên quan đến chủ đề.
+4. Phân tích xu hướng: Nêu bật các xu hướng hiện tại và dự đoán trong tương lai.
+5. Thực tiễn: Tập trung vào ứng dụng thực tế và giá trị của chủ đề.
+6. Ngắn gọn nhưng đầy đủ: Mỗi slide phải súc tích nhưng vẫn đủ thông tin.
+7. Cấu trúc rõ ràng: Sắp xếp thông tin theo trình tự logic với liên kết giữa các phần.
+
+Format JSON trả về như sau:
+{
+  "title": "Tiêu đề bài thuyết trình",
+  "description": "Mô tả ngắn về bài thuyết trình",
+  "slides": [
+    {
+      "title": "Tiêu đề slide",
+      "content": "Nội dung slide với định dạng súc tích và dễ hiểu",
+      "notes": "Ghi chú cho người thuyết trình (không hiển thị trong slide)",
+      "keywords": ["từ_khóa_1", "từ_khóa_2"], // Từ khóa hình ảnh gợi ý nếu cần
+      "slideType": "introduction|content|caseStudy|statistics|trends|conclusion|references" // Loại slide
+    }
+  ]
+}
+
+Hãy đảm bảo rằng bạn trả về CHÍNH XÁC định dạng JSON này, không thêm bất kỳ tiền tố hoặc hậu tố nào.
+`;
+}
 
 /**
  * Tạo bài thuyết trình mẫu khi không có API key hoặc OpenAI API bị lỗi
@@ -422,10 +705,10 @@ function createMinimalPresentation(topic, style, slides) {
 
 /**
  * Tăng cường nội dung cho các slide đặc biệt
- * @param {Array} slides - Mảng các slide cần tăng cường
+ * @param {Array} slides - Mảng các slide
  * @param {string} topic - Chủ đề bài thuyết trình
  * @param {Object} knowledge - Kiến thức thu thập được
- * @returns {Array} - Mảng các slide đã được tăng cường
+ * @returns {Array} - Mảng các slide đã tăng cường
  */
 function enhanceSpecializedSlides(slides, topic, knowledge) {
     return slides.map(slide => {
@@ -451,7 +734,7 @@ function enhanceSpecializedSlides(slides, topic, knowledge) {
 }
 
 /**
- * Đảm bảo có slide tài liệu tham khảo trong bài thuyết trình
+ * Đảm bảo có slide tài liệu tham khảo
  * @param {Array} slides - Mảng các slide
  * @param {string} topic - Chủ đề bài thuyết trình
  * @param {Object} knowledge - Kiến thức thu thập được
