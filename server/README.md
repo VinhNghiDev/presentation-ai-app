@@ -1,69 +1,72 @@
 # Backend Server cho Presentation AI App
 
-Backend server này xử lý các gọi API tới OpenAI, giúp tăng cường bảo mật bằng cách giữ API key ở phía server thay vì yêu cầu người dùng cung cấp.
+Backend server cho ứng dụng tạo bài thuyết trình bằng AI, hỗ trợ nhiều nền tảng AI khác nhau.
 
 ## Tính năng
 
-- API tạo bài thuyết trình tự động
-- API nâng cao nội dung slide
-- API gợi ý từ khóa hình ảnh
-- Bảo vệ API key của OpenAI
-
-## Yêu cầu
-
-- Node.js (v14.0.0 trở lên)
-- npm (v6.0.0 trở lên)
-- API key của OpenAI
+- API Endpoint cho tạo bài thuyết trình
+- Hỗ trợ đa nền tảng AI: OpenAI, Claude, Gemini
+- Xử lý và phân tích cú pháp phản hồi AI
+- Chức năng nâng cao nội dung
+- Chế độ demo fallback khi không có API key
 
 ## Cài đặt
 
-1. Clone project và chuyển đến thư mục server:
-
-```bash
-cd presentation-ai-app/server
-```
-
-2. Cài đặt các dependencies:
+1. Cài đặt các dependencies:
 
 ```bash
 npm install
 ```
 
-3. Tạo file `.env` trong thư mục server với nội dung sau:
+2. Tạo file `.env` từ `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+3. Cập nhật file `.env` với API key của bạn:
 
 ```
+# Cấu hình server
 PORT=5000
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_API_URL=https://api.openai.com/v1
-DEFAULT_MODEL=gpt-4
 NODE_ENV=development
+
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key_here  # Thay thế bằng API key của bạn
+OPENAI_API_URL=https://api.openai.com/v1
+DEFAULT_MODEL=gpt-4o
+
+# Claude API
+CLAUDE_API_KEY=your_claude_api_key_here  # Thay thế bằng API key của bạn
+CLAUDE_API_URL=https://api.anthropic.com/v1/messages
+DEFAULT_CLAUDE_MODEL=claude-3-haiku-20240307
+
+# Gemini API
+GEMINI_API_KEY=your_gemini_api_key_here  # Thay thế bằng API key của bạn
+GEMINI_API_URL=https://generativelanguage.googleapis.com/v1beta/models
+DEFAULT_GEMINI_MODEL=gemini-pro
+
+# Cấu hình fallback
+USE_FALLBACK=false
 ```
 
-Thay `your_openai_api_key_here` bằng API key của OpenAI của bạn. Bạn có thể lấy API key từ [OpenAI Platform](https://platform.openai.com/api-keys).
+Nếu bạn không có API key, server sẽ chạy ở chế độ demo, trả về dữ liệu mẫu.
 
 ## Chạy server
 
-1. Chạy server trong chế độ development:
+### Chế độ phát triển (với nodemon):
 
 ```bash
 npm run dev
 ```
 
-2. Hoặc chạy server trong chế độ production:
+### Chế độ sản xuất:
 
 ```bash
 npm start
 ```
 
-Server sẽ chạy tại địa chỉ mặc định: http://localhost:5000
-
-## Cấu hình frontend
-
-Để frontend có thể kết nối với backend, hãy tạo file `.env` trong thư mục gốc của project (presentation-ai-app) với nội dung:
-
-```
-REACT_APP_API_URL=http://localhost:5000/api
-```
+Server sẽ chạy tại cổng đã cấu hình trong file `.env` (mặc định là 5000).
 
 ## API Endpoints
 
@@ -73,6 +76,8 @@ REACT_APP_API_URL=http://localhost:5000/api
 GET /api/health
 ```
 
+Trả về trạng thái server và thông tin về các API có sẵn.
+
 ### Tạo bài thuyết trình
 
 ```
@@ -80,16 +85,18 @@ POST /api/presentation/generate
 ```
 
 Body:
+
 ```json
 {
   "topic": "Chủ đề bài thuyết trình",
   "style": "professional",
-  "slides": 5,
+  "slides": 10,
   "language": "vi",
   "purpose": "business",
   "audience": "general",
   "includeCharts": true,
-  "includeImages": true
+  "includeImages": true,
+  "provider": "OPENAI"  // Có thể là "OPENAI", "CLAUDE", "GEMINI"
 }
 ```
 
@@ -100,24 +107,86 @@ POST /api/presentation/enhance
 ```
 
 Body:
+
 ```json
 {
   "content": "Nội dung cần nâng cao",
-  "type": "improve" // Có thể là: improve, concise, elaborate, professional, creative
+  "type": "improve",
+  "provider": "OPENAI"  // Có thể là "OPENAI", "CLAUDE", "GEMINI"
 }
 ```
 
-### Gợi ý từ khóa hình ảnh
+### Gọi AI API chung
 
 ```
-POST /api/presentation/image-keywords
+POST /api/ai/completion
 ```
 
 Body:
+
 ```json
 {
-  "slideContent": "Nội dung slide để gợi ý từ khóa hình ảnh"
+  "options": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Bạn là trợ lý AI hữu ích."
+      },
+      {
+        "role": "user",
+        "content": "Prompt cho AI"
+      }
+    ],
+    "temperature": 0.7,
+    "maxTokens": 3000
+  },
+  "provider": "OPENAI",  // Có thể là "OPENAI", "CLAUDE", "GEMINI" 
+  "apiKey": "optional_api_key"  // Tùy chọn, nếu không cung cấp, sẽ sử dụng key từ biến môi trường
 }
+```
+
+## Hỗ trợ đa nền tảng AI
+
+Server hỗ trợ 3 nền tảng AI chính:
+
+1. **OpenAI** - Dùng các model của OpenAI như GPT-3.5 Turbo, GPT-4, GPT-4o
+2. **Claude** - Dùng các model của Anthropic như Claude 3 Haiku, Sonnet, và Opus
+3. **Gemini** - Dùng các model của Google như Gemini Pro
+
+Bạn có thể chọn nền tảng AI thông qua tham số `provider` trong yêu cầu API. Nếu không chỉ định, server sẽ sử dụng OpenAI làm mặc định.
+
+## Fallback tự động
+
+Nếu API key không hợp lệ hoặc gọi API thất bại, server sẽ:
+
+1. Thử lại với model dự phòng (ví dụ: từ GPT-4 xuống GPT-3.5 Turbo)
+2. Thử API khác nếu được cấu hình
+3. Trả về dữ liệu mẫu nếu tất cả đều thất bại
+
+## Biến môi trường
+
+| Biến                | Mô tả                                      | Mặc định                                     |
+| ------------------- | ------------------------------------------ | -------------------------------------------- |
+| PORT                | Cổng chạy server                          | 5000                                         |
+| NODE_ENV            | Môi trường chạy                           | development                                  |
+| OPENAI_API_KEY      | API key cho OpenAI                        | (không có mặc định)                          |
+| OPENAI_API_URL      | URL gốc cho API OpenAI                    | https://api.openai.com/v1                    |
+| DEFAULT_MODEL       | Model mặc định của OpenAI                 | gpt-4o                                       |
+| CLAUDE_API_KEY      | API key cho Claude                        | (không có mặc định)                          |
+| CLAUDE_API_URL      | URL gốc cho API Claude                    | https://api.anthropic.com/v1/messages        |
+| DEFAULT_CLAUDE_MODEL| Model mặc định của Claude                 | claude-3-haiku-20240307                      |
+| GEMINI_API_KEY      | API key cho Gemini                        | (không có mặc định)                          |
+| GEMINI_API_URL      | URL gốc cho API Gemini                    | https://generativelanguage.googleapis.com/v1beta/models |
+| DEFAULT_GEMINI_MODEL| Model mặc định của Gemini                 | gemini-pro                                   |
+| USE_FALLBACK        | Dùng dữ liệu mẫu khi không có API key     | false                                        |
+
+## Cấu hình frontend
+
+Để frontend có thể kết nối với backend, hãy tạo file `.env` trong thư mục gốc của project (presentation-ai-app) với nội dung:
+
+```
+REACT_APP_API_URL=http://localhost:5000/api
 ```
 
 ## Bảo mật

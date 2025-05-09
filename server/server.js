@@ -1,21 +1,76 @@
+// Đầu tiên, hãy tạo cấu trúc thư mục mới
+// server/
+//   - controllers/
+//     - aiController.js
+//     - presentationController.js
+//   - services/
+//     - openaiService.js
+//     - claudeService.js
+//     - geminiService.js
+//     - demoService.js
+//   - routes/
+//     - aiRoutes.js
+//     - presentationRoutes.js
+//   - utils/
+//     - promptUtils.js
+//   - config/
+//     - config.js
+//   - server.js
+
+// Nội dung mới cho server.js
 // Thêm dotenv để đọc biến môi trường từ file .env
 require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const { connectDB } = require('./config/dbConfig');
+const { apiLimiter, authLimiter } = require('./middleware/rateLimiter');
+const { requestLogger, errorLogger } = require('./utils/logger');
+const auth = require('./middleware/auth');
+
+// Import routes
+const aiRoutes = require('./routes/aiRoutes');
+const presentationRoutes = require('./routes/presentationRoutes');
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const templateRoutes = require('./routes/templateRoutes');
+
+// Config
+const config = require('./config/config');
 
 // Cấu hình
-const PORT = process.env.PORT || 5000;
+const PORT = config.PORT || 5000;
+
+// API Keys từ biến môi trường
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// API URLs
 const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
+const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'https://api.anthropic.com/v1/messages';
+const GEMINI_API_URL = process.env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com/v1beta/models';
+
+// Models
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'gpt-3.5-turbo';
-const DEMO_MODE = !OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here';
+const DEFAULT_CLAUDE_MODEL = process.env.DEFAULT_CLAUDE_MODEL || 'claude-3-haiku-20240307';
+const DEFAULT_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || 'gemini-pro';
+
+// Chế độ DEMO khi không có API key nào hợp lệ
+const DEMO_MODE = (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') && 
+                 (!CLAUDE_API_KEY || CLAUDE_API_KEY === 'your_claude_api_key_here') &&
+                 (!GEMINI_API_KEY || GEMINI_API_KEY === 'your_gemini_api_key_here');
 
 // Kiểm tra API key
 if (DEMO_MODE) {
-  console.warn('OPENAI_API_KEY không hợp lệ hoặc không được cấu hình. Chạy ở chế độ DEMO.');
-  console.warn('Trong chế độ DEMO, các API calls sẽ trả về dữ liệu mẫu thay vì gọi OpenAI API thực.');
+  console.warn('Không có API key hợp lệ. Chạy ở chế độ DEMO.');
+  console.warn('Trong chế độ DEMO, các API calls sẽ trả về dữ liệu mẫu thay vì gọi API thực.');
+} else {
+  console.log('Các API có sẵn:');
+  if (OPENAI_API_KEY && OPENAI_API_KEY !== 'your_openai_api_key_here') console.log('- OpenAI API');
+  if (CLAUDE_API_KEY && CLAUDE_API_KEY !== 'your_claude_api_key_here') console.log('- Claude API');
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') console.log('- Gemini API');
 }
 
 const app = express();
@@ -23,16 +78,93 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(requestLogger);
+
+// Rate limiting
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+
+// Routes
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/users', auth, require('./routes/userRoutes'));
+app.use('/api/presentations', auth, require('./routes/presentationRoutes'));
+app.use('/api/templates', auth, require('./routes/templateRoutes'));
 
 // Kiểm tra kết nối
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server đang hoạt động' });
+  res.json({ 
+    status: 'ok', 
+    message: 'Server đang hoạt động',
+    availableApis: config.getAvailableApis(),
+    demoMode: config.isDemoMode(),
+    databaseMode: global.useDemoDatabase ? 'demo' : 'mongodb'
+  });
+});
+
+// API endpoint chung cho tất cả các dịch vụ AI
+app.post('/api/ai/completion', async (req, res) => {
+  try {
+    const { options, provider, apiKey } = req.body;
+    
+    if (!options || !options.messages) {
+      return res.status(400).json({ error: 'Yêu cầu không hợp lệ. Thiếu options hoặc messages.' });
+    }
+    
+    // Xác định API key và provider
+    const providerKey = provider || 'OPENAI';
+    let effectiveApiKey;
+    
+    // Sử dụng API key từ request (nếu có) hoặc từ biến môi trường
+    switch (providerKey) {
+      case 'OPENAI':
+        effectiveApiKey = apiKey || OPENAI_API_KEY;
+        break;
+      case 'CLAUDE':
+        effectiveApiKey = apiKey || CLAUDE_API_KEY;
+        break;
+      case 'GEMINI':
+        effectiveApiKey = apiKey || GEMINI_API_KEY;
+        break;
+      default:
+        effectiveApiKey = apiKey || OPENAI_API_KEY;
+    }
+    
+    // Chế độ DEMO nếu không có API key hợp lệ
+    if (!effectiveApiKey || effectiveApiKey === 'your_openai_api_key_here' || effectiveApiKey.startsWith('your_')) {
+      console.log(`Đang chạy ở chế độ DEMO cho ${providerKey}`);
+      const demoContent = generateDemoAIResponse(options);
+      return res.json({ content: demoContent });
+    }
+    
+    // Gọi API tương ứng
+    let apiResponse;
+    switch (providerKey) {
+      case 'OPENAI':
+        apiResponse = await callOpenAI(options, effectiveApiKey);
+        break;
+      case 'CLAUDE':
+        apiResponse = await callClaude(options, effectiveApiKey);
+        break;
+      case 'GEMINI':
+        apiResponse = await callGemini(options, effectiveApiKey);
+        break;
+      default:
+        apiResponse = await callOpenAI(options, effectiveApiKey);
+    }
+    
+    return res.json({ content: apiResponse });
+  } catch (error) {
+    console.error('Lỗi khi gọi AI API:', error.message);
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error?.message || error.message || 'Lỗi server';
+    res.status(status).json({ error: message });
+  }
 });
 
 // API tạo bài thuyết trình
 app.post('/api/presentation/generate', async (req, res) => {
   try {
-    const { topic, style, slides, language, purpose, audience, includeCharts, includeImages } = req.body;
+    const { topic, style, slides, language, purpose, audience, includeCharts, includeImages, provider } = req.body;
     
     if (!topic) {
       return res.status(400).json({ error: 'Chủ đề không được để trống' });
@@ -45,62 +177,44 @@ app.post('/api/presentation/generate', async (req, res) => {
       return res.json(demoData);
     }
     
-    // Chế độ thực: Gọi OpenAI API
-    // Tạo prompt cho OpenAI
+    // Chế độ thực: Gọi API tương ứng
+    // Tạo prompt cho AI
     const prompt = createPresentationPrompt({
       topic, style, slides, language, purpose, audience, includeCharts, includeImages
     });
     
-    const requestBody = {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Luôn trả về JSON theo định dạng yêu cầu.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 3000
-    };
+    let apiKey, apiResponse;
     
-    // Gọi API OpenAI
-    const response = await axios.post(
-      `${OPENAI_API_URL}/chat/completions`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        }
-      }
-    );
-    
-    if (response.data.choices && response.data.choices.length > 0) {
-      const content = response.data.choices[0].message.content;
-      
-      try {
-        // Phân tích cú pháp JSON từ phản hồi
-        const jsonStartIndex = content.indexOf('{');
-        const jsonEndIndex = content.lastIndexOf('}') + 1;
-        
-        if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
-          const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
-          const presentationData = JSON.parse(jsonContent);
-          return res.json(presentationData);
+    // Xác định API để sử dụng
+    switch (provider) {
+      case 'CLAUDE':
+        apiKey = CLAUDE_API_KEY;
+        if (!apiKey || apiKey === 'your_claude_api_key_here') {
+          console.log('Claude API key không hợp lệ, sử dụng fallback.');
+          apiResponse = await callOpenAIForPresentation(prompt);
         } else {
-          return res.status(500).json({ error: 'Không thể phân tích dữ liệu JSON từ phản hồi' });
+          apiResponse = await callClaudeForPresentation(prompt, apiKey);
         }
-      } catch (jsonError) {
-        console.error('Lỗi phân tích JSON:', jsonError);
-        return res.status(500).json({ error: 'Định dạng phản hồi không hợp lệ' });
-      }
-    } else {
-      return res.status(500).json({ error: 'Không nhận được phản hồi hợp lệ từ API' });
+        break;
+      case 'GEMINI':
+        apiKey = GEMINI_API_KEY;
+        if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+          console.log('Gemini API key không hợp lệ, sử dụng fallback.');
+          apiResponse = await callOpenAIForPresentation(prompt);
+        } else {
+          apiResponse = await callGeminiForPresentation(prompt, apiKey);
+        }
+        break;
+      default:
+        // Mặc định là OpenAI
+        apiResponse = await callOpenAIForPresentation(prompt);
     }
+    
+    if (!apiResponse) {
+      return res.status(500).json({ error: 'Không thể tạo bài thuyết trình' });
+    }
+    
+    return res.json(apiResponse);
   } catch (error) {
     console.error('Lỗi tạo bài thuyết trình:', error);
     const status = error.response?.status || 500;
@@ -109,10 +223,282 @@ app.post('/api/presentation/generate', async (req, res) => {
   }
 });
 
+// Gọi OpenAI API
+async function callOpenAI(options, apiKey) {
+  const { model = DEFAULT_MODEL, messages, temperature = 0.7, maxTokens = 3000 } = options;
+  
+  const requestBody = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens
+  };
+  
+  const response = await axios.post(
+    `${OPENAI_API_URL}/chat/completions`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      }
+    }
+  );
+  
+  return response.data.choices[0].message.content;
+}
+
+// Gọi Claude API
+async function callClaude(options, apiKey) {
+  const { model = DEFAULT_CLAUDE_MODEL, messages, temperature = 0.7, maxTokens = 3000 } = options;
+  
+  // Chuyển đổi từ định dạng messages của OpenAI sang Claude
+  const system = messages.find(m => m.role === 'system')?.content || '';
+  const userMessages = messages.filter(m => m.role !== 'system');
+  
+  const requestBody = {
+    model,
+    messages: userMessages,
+    system,
+    temperature,
+    max_tokens: maxTokens
+  };
+  
+  const response = await axios.post(
+    CLAUDE_API_URL,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    }
+  );
+  
+  return response.data.content[0].text;
+}
+
+// Gọi Gemini API
+async function callGemini(options, apiKey) {
+  const { model = DEFAULT_GEMINI_MODEL, messages, temperature = 0.7, maxTokens = 3000 } = options;
+  
+  // Chuyển đổi messages thành gemini format
+  const geminiMessages = messages.map(msg => {
+    if (msg.role === 'system') {
+      // Gemini không có system message, chuyển thành user message
+      return { role: 'user', parts: [{ text: msg.content }] };
+    } else {
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      };
+    }
+  });
+  
+  const requestBody = {
+    contents: geminiMessages,
+    generationConfig: {
+      temperature,
+      maxOutputTokens: maxTokens
+    }
+  };
+  
+  const response = await axios.post(
+    `${GEMINI_API_URL}/${model}:generateContent?key=${apiKey}`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  return response.data.candidates[0].content.parts[0].text;
+}
+
+// Gọi OpenAI API cho bài thuyết trình
+async function callOpenAIForPresentation(prompt) {
+  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
+    console.log('OpenAI API key không hợp lệ, trả về dữ liệu mẫu.');
+    return null;
+  }
+  
+  const requestBody = {
+    model: DEFAULT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Luôn trả về JSON theo định dạng yêu cầu.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    temperature: 0.7,
+    max_tokens: 3000
+  };
+  
+  const response = await axios.post(
+    `${OPENAI_API_URL}/chat/completions`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      }
+    }
+  );
+  
+  if (response.data.choices && response.data.choices.length > 0) {
+    const content = response.data.choices[0].message.content;
+    
+    try {
+      // Phân tích cú pháp JSON từ phản hồi
+      const jsonStartIndex = content.indexOf('{');
+      const jsonEndIndex = content.lastIndexOf('}') + 1;
+      
+      if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+        const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
+        const presentationData = JSON.parse(jsonContent);
+        return presentationData;
+      } else {
+        throw new Error('Không thể phân tích dữ liệu JSON từ phản hồi');
+      }
+    } catch (jsonError) {
+      console.error('Lỗi phân tích JSON:', jsonError);
+      return null;
+    }
+  } else {
+    return null;
+  }
+}
+
+// Gọi Claude API cho bài thuyết trình
+async function callClaudeForPresentation(prompt, apiKey) {
+  const requestBody = {
+    model: DEFAULT_CLAUDE_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    system: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Luôn trả về JSON theo định dạng yêu cầu.',
+    temperature: 0.7,
+    max_tokens: 3000
+  };
+  
+  const response = await axios.post(
+    CLAUDE_API_URL,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    }
+  );
+  
+  if (response.data.content && response.data.content.length > 0) {
+    const content = response.data.content[0].text;
+    
+    try {
+      // Phân tích cú pháp JSON từ phản hồi
+      const jsonStartIndex = content.indexOf('{');
+      const jsonEndIndex = content.lastIndexOf('}') + 1;
+      
+      if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+        const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
+        const presentationData = JSON.parse(jsonContent);
+        return presentationData;
+      } else {
+        throw new Error('Không thể phân tích dữ liệu JSON từ phản hồi Claude');
+      }
+    } catch (jsonError) {
+      console.error('Lỗi phân tích JSON từ Claude:', jsonError);
+      return null;
+    }
+  } else {
+    return null;
+  }
+}
+
+// Gọi Gemini API cho bài thuyết trình
+async function callGeminiForPresentation(prompt, apiKey) {
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Luôn trả về JSON theo định dạng yêu cầu.'
+          }
+        ]
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            text: 'Tôi hiểu rồi. Tôi sẽ tạo nội dung bài thuyết trình chuyên nghiệp và trả về kết quả theo định dạng JSON theo yêu cầu của bạn.'
+          }
+        ]
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            text: prompt
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 3000
+    }
+  };
+  
+  const response = await axios.post(
+    `${GEMINI_API_URL}/${DEFAULT_GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  if (response.data.candidates && response.data.candidates.length > 0) {
+    const content = response.data.candidates[0].content.parts[0].text;
+    
+    try {
+      // Phân tích cú pháp JSON từ phản hồi
+      const jsonStartIndex = content.indexOf('{');
+      const jsonEndIndex = content.lastIndexOf('}') + 1;
+      
+      if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+        const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
+        const presentationData = JSON.parse(jsonContent);
+        return presentationData;
+      } else {
+        throw new Error('Không thể phân tích dữ liệu JSON từ phản hồi Gemini');
+      }
+    } catch (jsonError) {
+      console.error('Lỗi phân tích JSON từ Gemini:', jsonError);
+      return null;
+    }
+  } else {
+    return null;
+  }
+}
+
 // API nâng cao nội dung slide
 app.post('/api/presentation/enhance', async (req, res) => {
   try {
-    const { content, type } = req.body;
+    const { content, type, provider } = req.body;
     
     if (!content) {
       return res.status(400).json({ error: 'Nội dung không được để trống' });
@@ -127,39 +513,36 @@ app.post('/api/presentation/enhance', async (req, res) => {
     
     const enhancementPrompt = createEnhancementPrompt(content, type);
     
-    const requestBody = {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Bạn là chuyên gia nâng cao nội dung bài thuyết trình. Hãy cải thiện và tối ưu hóa nội dung theo yêu cầu.'
-        },
-        {
-          role: 'user',
-          content: enhancementPrompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000
-    };
+    let apiKey, enhancedContent;
     
-    const response = await axios.post(
-      `${OPENAI_API_URL}/chat/completions`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
+    // Xác định API để sử dụng
+    switch (provider) {
+      case 'CLAUDE':
+        apiKey = CLAUDE_API_KEY;
+        if (!apiKey || apiKey === 'your_claude_api_key_here') {
+          enhancedContent = await callOpenAIForEnhancement(enhancementPrompt);
+        } else {
+          enhancedContent = await callClaudeForEnhancement(enhancementPrompt, apiKey);
         }
-      }
-    );
-    
-    if (response.data.choices && response.data.choices.length > 0) {
-      const enhancedContent = response.data.choices[0].message.content;
-      return res.json({ enhancedContent });
-    } else {
-      return res.status(500).json({ error: 'Không nhận được phản hồi hợp lệ từ API' });
+        break;
+      case 'GEMINI':
+        apiKey = GEMINI_API_KEY;
+        if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+          enhancedContent = await callOpenAIForEnhancement(enhancementPrompt);
+        } else {
+          enhancedContent = await callGeminiForEnhancement(enhancementPrompt, apiKey);
+        }
+        break;
+      default:
+        // Mặc định là OpenAI
+        enhancedContent = await callOpenAIForEnhancement(enhancementPrompt);
     }
+    
+    if (!enhancedContent) {
+      return res.status(500).json({ error: 'Không thể nâng cao nội dung' });
+    }
+    
+    return res.json({ enhancedContent });
   } catch (error) {
     console.error('Lỗi nâng cao nội dung:', error);
     const status = error.response?.status || 500;
@@ -168,73 +551,129 @@ app.post('/api/presentation/enhance', async (req, res) => {
   }
 });
 
-// API gợi ý từ khóa hình ảnh
-app.post('/api/presentation/image-keywords', async (req, res) => {
-  try {
-    const { slideContent } = req.body;
-    
-    if (!slideContent) {
-      return res.status(400).json({ error: 'Nội dung slide không được để trống' });
-    }
-    
-    const prompt = `Phân tích nội dung slide sau và đề xuất 3-5 từ khóa phù hợp nhất cho hình ảnh minh họa:\n\n"${slideContent}"\n\nTrả về kết quả dưới dạng mảng JSON với chỉ các từ khóa.`;
-    
-    const requestBody = {
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Bạn là chuyên gia phân tích nội dung và đề xuất từ khóa hình ảnh cho bài thuyết trình.'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 200
-    };
-    
-    const response = await axios.post(
-      `${OPENAI_API_URL}/chat/completions`,
-      requestBody,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENAI_API_KEY}`
-        }
-      }
-    );
-    
-    if (response.data.choices && response.data.choices.length > 0) {
-      const content = response.data.choices[0].message.content;
-      
-      try {
-        // Phân tích mảng JSON từ phản hồi
-        const jsonMatch = content.match(/\[.*\]/s);
-        if (jsonMatch) {
-          const keywords = JSON.parse(jsonMatch[0]);
-          return res.json({ keywords });
-        } else {
-          // Fallback nếu không tìm thấy định dạng mảng
-          const keywordList = extractKeywordsFromText(content);
-          return res.json({ keywords: keywordList });
-        }
-      } catch (jsonError) {
-        console.error('Lỗi phân tích JSON từ khóa:', jsonError);
-        const keywordList = extractKeywordsFromText(content);
-        return res.json({ keywords: keywordList });
-      }
-    } else {
-      return res.status(500).json({ error: 'Không nhận được phản hồi hợp lệ từ API' });
-    }
-  } catch (error) {
-    console.error('Lỗi gợi ý từ khóa hình ảnh:', error);
-    const status = error.response?.status || 500;
-    const message = error.response?.data?.error?.message || error.message || 'Lỗi server';
-    res.status(status).json({ error: message });
+// Các hàm gọi API cho nâng cao nội dung
+async function callOpenAIForEnhancement(prompt) {
+  if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
+    return enhanceContentDemo(prompt);
   }
-});
+  
+  const requestBody = {
+    model: DEFAULT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: 'Bạn là chuyên gia nâng cao nội dung bài thuyết trình. Hãy cải thiện và tối ưu hóa nội dung theo yêu cầu.'
+      },
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    temperature: 0.7,
+    max_tokens: 1000
+  };
+  
+  const response = await axios.post(
+    `${OPENAI_API_URL}/chat/completions`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      }
+    }
+  );
+  
+  if (response.data.choices && response.data.choices.length > 0) {
+    return response.data.choices[0].message.content;
+  }
+  
+  return null;
+}
+
+async function callClaudeForEnhancement(prompt, apiKey) {
+  const requestBody = {
+    model: DEFAULT_CLAUDE_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: prompt
+      }
+    ],
+    system: 'Bạn là chuyên gia nâng cao nội dung bài thuyết trình. Hãy cải thiện và tối ưu hóa nội dung theo yêu cầu.',
+    temperature: 0.7,
+    max_tokens: 1000
+  };
+  
+  const response = await axios.post(
+    CLAUDE_API_URL,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    }
+  );
+  
+  if (response.data.content && response.data.content.length > 0) {
+    return response.data.content[0].text;
+  }
+  
+  return null;
+}
+
+async function callGeminiForEnhancement(prompt, apiKey) {
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: 'Bạn là chuyên gia nâng cao nội dung bài thuyết trình. Hãy cải thiện và tối ưu hóa nội dung theo yêu cầu.'
+          }
+        ]
+      },
+      {
+        role: 'model',
+        parts: [
+          {
+            text: 'Tôi sẽ giúp bạn nâng cao nội dung bài thuyết trình.'
+          }
+        ]
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            text: prompt
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1000
+    }
+  };
+  
+  const response = await axios.post(
+    `${GEMINI_API_URL}/${DEFAULT_GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    requestBody,
+    {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  if (response.data.candidates && response.data.candidates.length > 0) {
+    return response.data.candidates[0].content.parts[0].text;
+  }
+  
+  return null;
+}
 
 // Hàm trích xuất từ khóa từ văn bản
 function extractKeywordsFromText(text) {
@@ -490,7 +929,54 @@ function enhanceContentDemo(content, type = 'improve') {
   }
 }
 
-// Khởi động server
-app.listen(PORT, () => {
-  console.log(`Server đang chạy tại http://localhost:${PORT}`);
-}); 
+/**
+ * Tạo phản hồi AI mẫu cho chế độ demo
+ * @param {Object} options - Tùy chọn cho phản hồi
+ * @returns {string} - Nội dung phản hồi mẫu
+ */
+function generateDemoAIResponse(options) {
+  const messages = options.messages || [];
+  const userMessage = messages.find(m => m.role === 'user')?.content || '';
+  
+  if (userMessage.length < 10) {
+    return 'Tôi không có đủ thông tin để trả lời. Vui lòng cung cấp thêm chi tiết.';
+  }
+  
+  return `Đây là phản hồi mẫu cho yêu cầu của bạn về "${userMessage.substring(0, 50)}...".
+  
+Phản hồi này được tạo ra ở chế độ DEMO vì không có API key hợp lệ. Trong môi trường thực tế, phản hồi sẽ được tạo bởi AI thông qua API.
+
+Để sử dụng chức năng này, vui lòng cấu hình API key trong file .env của server.`;
+}
+
+// Error handling
+app.use(errorLogger);
+app.use((err, req, res, next) => {
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal Server Error',
+    error: process.env.NODE_ENV === 'development' ? err : {}
+  });
+});
+
+// Connect to MongoDB
+connectDB().then(() => {
+  // Khởi động server sau khi kết nối MongoDB thành công
+  app.listen(PORT, () => {
+    console.log(`Server đang chạy tại cổng ${PORT}`);
+    console.log(`URL: http://localhost:${PORT}`);
+    if (DEMO_MODE) {
+      console.log('Chế độ DEMO đang hoạt động. Các API calls sẽ trả về dữ liệu mẫu.');
+    }
+  });
+}).catch(err => {
+  console.error('Không thể kết nối đến MongoDB:', err);
+  process.exit(1);
+});
+
+// Xử lý lỗi không bắt được
+process.on('uncaughtException', (error) => {
+  console.error('Lỗi không bắt được:', error);
+});
+
+// Export app để có thể sử dụng trong tests
+module.exports = app; 
