@@ -22,7 +22,7 @@ const DEMO_MODE = (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_he
                  (!GEMINI_API_KEY || GEMINI_API_KEY === 'your_gemini_api_key_here');
 
 // Port
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 
 // Lấy danh sách API khả dụng
 function getAvailableApis() {

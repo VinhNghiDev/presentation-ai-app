@@ -19,15 +19,18 @@
 
 // Nội dung mới cho server.js
 // Thêm dotenv để đọc biến môi trường từ file .env
-require('dotenv').config();
-
+require('dotenv').config({ path: __dirname + '/.env' });
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const http = require('http');
+const { Server } = require('socket.io');
 const { connectDB } = require('./config/dbConfig');
 const { apiLimiter, authLimiter } = require('./middleware/rateLimiter');
 const { requestLogger, errorLogger } = require('./utils/logger');
 const auth = require('./middleware/auth');
+const path = require('path');
+const { OpenAI } = require('openai');
 
 // Import routes
 const aiRoutes = require('./routes/aiRoutes');
@@ -35,12 +38,20 @@ const presentationRoutes = require('./routes/presentationRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const templateRoutes = require('./routes/templateRoutes');
+const openaiService = require('./services/openaiService');
+const huggingfaceRoutes = require('./routes/huggingfaceRoutes');
 
 // Config
 const config = require('./config/config');
 
 // Cấu hình
-const PORT = config.PORT || 5000;
+const PORT = process.env.PORT || 3001;
+
+// Log server configuration
+console.log('Server configuration:');
+console.log('- Port:', PORT);
+console.log('- Client URL:', process.env.CLIENT_URL || 'http://localhost:3000');
+console.log('- API URL:', `http://localhost:${PORT}/api`);
 
 // API Keys từ biến môi trường
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -74,10 +85,22 @@ if (DEMO_MODE) {
 }
 
 const app = express();
+const server = http.createServer(app);
+
+// Cấu hình CORS cho Express
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true
+}));
+
+// Khởi tạo Socket.IO
+const { initializeSocket } = require('./socket');
+const io = initializeSocket(server);
 
 // Middleware
-app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
 // Rate limiting
@@ -87,16 +110,86 @@ app.use('/api/auth/', authLimiter);
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', auth, require('./routes/userRoutes'));
-app.use('/api/presentations', auth, require('./routes/presentationRoutes'));
+app.use('/api/presentations', auth, presentationRoutes);
 app.use('/api/templates', auth, require('./routes/templateRoutes'));
+app.use('/api/huggingface', huggingfaceRoutes);
+
+// Route test OpenAI không yêu cầu xác thực
+app.post('/api/test-openai', async (req, res) => {
+  try {
+    console.log('Testing OpenAI connection...');
+    
+    const response = await openaiService.callOpenAI({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: "Say hello!" }]
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'OpenAI connection successful',
+      response: response
+    });
+  } catch (error) {
+    console.error('OpenAI Test Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
+
+// Route test Claude AI không yêu cầu xác thực
+app.get('/api/test-claude', async (req, res) => {
+  try {
+    console.log('Testing Claude connection...');
+    console.log('API Key:', process.env.CLAUDE_API_KEY ? 'Present' : 'Missing');
+    
+    const response = await axios.post(
+      'https://api.anthropic.com/v1/messages',
+      {
+        model: 'claude-3-haiku-20240307',
+        messages: [{ role: 'user', content: 'Say hello!' }],
+        max_tokens: 1000
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01'
+        }
+      }
+    );
+
+    console.log('Claude Response:', response.data);
+    res.json({ 
+      success: true, 
+      message: 'Claude connection successful',
+      response: response.data.content[0].text 
+    });
+  } catch (error) {
+    console.error('Claude Test Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: error.response?.data || 'No additional details'
+    });
+  }
+});
 
 // Kiểm tra kết nối
 app.get('/api/health', (req, res) => {
+  const availableApis = [];
+  if (OPENAI_API_KEY && OPENAI_API_KEY !== 'your_openai_api_key_here') availableApis.push('OpenAI');
+  if (CLAUDE_API_KEY && CLAUDE_API_KEY !== 'your_claude_api_key_here') availableApis.push('Claude');
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'your_gemini_api_key_here') availableApis.push('Gemini');
+  if (process.env.HUGGINGFACE_API_KEY) availableApis.push('Hugging Face');
+  
   res.json({ 
     status: 'ok', 
     message: 'Server đang hoạt động',
-    availableApis: config.getAvailableApis(),
-    demoMode: config.isDemoMode(),
+    availableApis: availableApis,
+    demoMode: DEMO_MODE,
     databaseMode: global.useDemoDatabase ? 'demo' : 'mongodb'
   });
 });
@@ -132,7 +225,7 @@ app.post('/api/ai/completion', async (req, res) => {
     // Chế độ DEMO nếu không có API key hợp lệ
     if (!effectiveApiKey || effectiveApiKey === 'your_openai_api_key_here' || effectiveApiKey.startsWith('your_')) {
       console.log(`Đang chạy ở chế độ DEMO cho ${providerKey}`);
-      const demoContent = generateDemoAIResponse(options);
+      const demoContent = "Không có API key hợp lệ. Hãy sử dụng Hugging Face API hoặc cung cấp API key hợp lệ.";
       return res.json({ content: demoContent });
     }
     
@@ -173,15 +266,16 @@ app.post('/api/presentation/generate', async (req, res) => {
     // Chế độ DEMO: Trả về dữ liệu mẫu
     if (DEMO_MODE) {
       console.log('Đang chạy tạo bài thuyết trình ở chế độ DEMO.');
-      const demoData = generateDemoPresentation(topic, slides || 5, style);
-      return res.json(demoData);
+      return res.json({
+        title: "Bạn đang ở chế độ DEMO",
+        description: "Không có API key hợp lệ. Vui lòng sử dụng endpoint /api/huggingface/presentation/generate để tạo bài thuyết trình.",
+        redirectTo: "/api/huggingface/presentation/generate"
+      });
     }
     
     // Chế độ thực: Gọi API tương ứng
     // Tạo prompt cho AI
-    const prompt = createPresentationPrompt({
-      topic, style, slides, language, purpose, audience, includeCharts, includeImages
-    });
+    const prompt = "Chức năng tạo prompt đã được chuyển sang Hugging Face API. Vui lòng sử dụng endpoint /api/huggingface/presentation/generate";
     
     let apiKey, apiResponse;
     
@@ -507,7 +601,7 @@ app.post('/api/presentation/enhance', async (req, res) => {
     // Chế độ DEMO: Trả về nội dung đã nâng cao mẫu
     if (DEMO_MODE) {
       console.log('Đang chạy nâng cao nội dung ở chế độ DEMO.');
-      const enhancedContent = enhanceContentDemo(content, type);
+      const enhancedContent = "Nội dung đã được cải thiện (phiên bản demo). Để có kết quả tốt hơn, hãy cung cấp API key hợp lệ.";
       return res.json({ enhancedContent });
     }
     
@@ -554,7 +648,7 @@ app.post('/api/presentation/enhance', async (req, res) => {
 // Các hàm gọi API cho nâng cao nội dung
 async function callOpenAIForEnhancement(prompt) {
   if (!OPENAI_API_KEY || OPENAI_API_KEY === 'your_openai_api_key_here') {
-    return enhanceContentDemo(prompt);
+    return "Không thể nâng cao nội dung do thiếu API key. Vui lòng cung cấp OpenAI API key hợp lệ.";
   }
   
   const requestBody = {
@@ -687,290 +781,30 @@ function createEnhancementPrompt(content, type) {
   switch (type) {
     case 'concise':
       return `Hãy tóm tắt và làm súc tích nội dung sau đây, đảm bảo giữ lại những điểm quan trọng nhất:\n\n${content}`;
-    case 'elaborate':
-      return `Hãy mở rộng và bổ sung chi tiết cho nội dung sau đây, làm cho nó phong phú và đầy đủ hơn:\n\n${content}`;
-    case 'professional':
-      return `Hãy viết lại nội dung sau đây theo phong cách chuyên nghiệp và trang trọng hơn:\n\n${content}`;
-    case 'creative':
-      return `Hãy viết lại nội dung sau đây theo phong cách sáng tạo và hấp dẫn hơn:\n\n${content}`;
     default:
-      return `Hãy cải thiện nội dung sau đây, làm cho nó rõ ràng, dễ hiểu và có tính thuyết phục hơn:\n\n${content}`;
+      return content;
   }
 }
-
-// Hàm tạo prompt cho bài thuyết trình
-function createPresentationPrompt(options) {
-  const { 
-    topic, 
-    style, 
-    slides, 
-    language = 'vi',
-    purpose = 'business',
-    audience = 'general',
-    includeCharts = true,
-    includeImages = true
-  } = options;
-  
-  let styleDescription = '';
-  switch (style) {
-    case 'professional':
-      styleDescription = 'Chuyên nghiệp, súc tích, rõ ràng, phù hợp trong môi trường doanh nghiệp';
-      break;
-    case 'creative':
-      styleDescription = 'Sáng tạo, hấp dẫn, với ngôn ngữ sinh động và ý tưởng độc đáo';
-      break;
-    case 'minimal':
-      styleDescription = 'Tối giản, chỉ những thông tin thiết yếu, trình bày đơn giản';
-      break;
-    case 'academic':
-      styleDescription = 'Học thuật, chính xác, có trích dẫn và thuật ngữ chuyên ngành';
-      break;
-    case 'nature':
-      styleDescription = 'Lấy cảm hứng từ thiên nhiên, thân thiện với môi trường, nhẹ nhàng';
-      break;
-    case 'tech':
-      styleDescription = 'Định hướng công nghệ, hiện đại, đổi mới, tập trung vào xu hướng mới';
-      break;
-    default:
-      styleDescription = 'Chuyên nghiệp và dễ hiểu';
-  }
-  
-  let audienceDescription = '';
-  switch (audience) {
-    case 'executive':
-      audienceDescription = 'Lãnh đạo và quản lý cấp cao, tập trung vào chiến lược và kết quả';
-      break;
-    case 'technical':
-      audienceDescription = 'Chuyên gia kỹ thuật, có kiến thức chuyên môn trong lĩnh vực';
-      break;
-    case 'student':
-      audienceDescription = 'Học sinh và sinh viên, nội dung giáo dục và dễ tiếp cận';
-      break;
-    case 'client':
-      audienceDescription = 'Khách hàng và đối tác, tập trung vào giá trị và lợi ích';
-      break;
-    default:
-      audienceDescription = 'Đối tượng đại chúng với nhiều cấp độ hiểu biết khác nhau';
-  }
-  
-  let purposeDescription = '';
-  switch (purpose) {
-    case 'education':
-      purposeDescription = 'Giáo dục và đào tạo, truyền đạt kiến thức';
-      break;
-    case 'marketing':
-      purposeDescription = 'Marketing và truyền thông, thuyết phục và thu hút';
-      break;
-    case 'academic':
-      purposeDescription = 'Nghiên cứu học thuật, báo cáo khoa học';
-      break;
-    case 'personal':
-      purposeDescription = 'Sử dụng cá nhân, chia sẻ thông tin hoặc kỹ năng';
-      break;
-    default:
-      purposeDescription = 'Sử dụng trong môi trường doanh nghiệp và công việc';
-  }
-  
-  // Bổ sung thông tin về biểu đồ và hình ảnh
-  const mediaGuidance = `
-Hướng dẫn về phương tiện trực quan:
-- ${includeCharts ? 'Đề xuất dữ liệu biểu đồ thống kê cho các slide có nội dung phù hợp.' : 'Không đề xuất biểu đồ.'}
-- ${includeImages ? 'Đề xuất từ khóa hình ảnh phù hợp cho mỗi slide.' : 'Không đề xuất hình ảnh.'}
-`;
-  
-  return `
-Tạo một bài thuyết trình chi tiết và chuyên nghiệp về chủ đề "${topic}" với ${slides} slides.
-
-Thông tin cơ bản:
-- Phong cách: ${styleDescription}
-- Đối tượng: ${audienceDescription}
-- Mục đích: ${purposeDescription}
-- Ngôn ngữ: ${language === 'vi' ? 'Tiếng Việt' : language === 'en' ? 'Tiếng Anh' : `${language}`}
-${mediaGuidance}
-
-Format JSON trả về như sau:
-{
-  "title": "Tiêu đề bài thuyết trình",
-  "description": "Mô tả ngắn về bài thuyết trình",
-  "slides": [
-    {
-      "title": "Tiêu đề slide",
-      "content": "Nội dung slide với định dạng súc tích và dễ hiểu",
-      "notes": "Ghi chú cho người thuyết trình (không hiển thị trong slide)",
-      "keywords": ["từ_khóa_1", "từ_khóa_2"] // Từ khóa hình ảnh gợi ý nếu cần
-    }
-  ]
-}
-
-Hướng dẫn chi tiết:
-1. Slide đầu tiên cần là trang bìa hấp dẫn với tiêu đề chính và phụ đề.
-2. Slide cuối cùng nên là trang kết luận và lời cảm ơn.
-3. Mỗi slide nên có cấu trúc rõ ràng, nội dung ngắn gọn (tối đa 5-7 điểm chính).
-4. Tránh đoạn văn dài, ưu tiên sử dụng danh sách, từ khóa và câu ngắn.
-5. Đối với các slide có số liệu, hãy đề xuất dạng biểu đồ phù hợp (nếu được yêu cầu).
-6. Ghi chú cho người thuyết trình nên bao gồm thông tin bổ sung, lời thoại gợi ý.
-
-Hãy đảm bảo nội dung:
-- Có tính học thuật và đáng tin cậy nếu là bài thuyết trình giáo dục/học thuật
-- Có tính thuyết phục và hấp dẫn nếu là bài thuyết trình marketing/kinh doanh
-- Dễ hiểu và phù hợp với trình độ nếu là bài thuyết trình cho học sinh/sinh viên
-- Chuyên nghiệp và định hướng kết quả nếu là bài thuyết trình cho lãnh đạo
-
-Đặc biệt chú ý tạo cấu trúc rõ ràng và hợp lý trong toàn bộ bài thuyết trình.
-`;
-}
-
-// Hàm tạo dữ liệu thuyết trình mẫu cho chế độ DEMO
-function generateDemoPresentation(topic, slideCount = 5, style = 'professional') {
-  console.log(`Tạo bài thuyết trình mẫu với chủ đề: ${topic}, ${slideCount} slides, style: ${style}`);
-  
-  const titlePrefix = style === 'creative' ? 'Sáng tạo cùng' : 
-                     style === 'minimal' ? 'Tối giản về' : 
-                     style === 'academic' ? 'Nghiên cứu về' : 
-                     style === 'tech' ? 'Công nghệ & ' : 'Giới thiệu về';
-  
-  const demoPresentation = {
-    title: `${titlePrefix} ${topic}`,
-    description: `Bài thuyết trình về ${topic} được tạo tự động bằng AI.`,
-    slides: []
-  };
-  
-  // Tạo slide đầu tiên - Trang bìa
-  demoPresentation.slides.push({
-    title: demoPresentation.title,
-    content: `Một bài thuyết trình về ${topic}\nTạo bởi Presentation AI App`,
-    notes: "Giới thiệu bản thân và chào đón khán giả. Giải thích ngắn gọn mục đích của bài thuyết trình.",
-    keywords: ["presentation", "introduction", topic.toLowerCase()]
-  });
-  
-  // Tạo các slide nội dung
-  const contentSlides = slideCount - 2; // Trừ slide đầu và cuối
-  
-  for (let i = 0; i < contentSlides; i++) {
-    const slideIndex = i + 1;
-    let slideTitle = '';
-    let slideContent = '';
-    let slideNotes = '';
-    let slideKeywords = [];
-    
-    switch (slideIndex) {
-      case 1:
-        slideTitle = 'Tổng quan';
-        slideContent = `- ${topic} là gì?\n- Tầm quan trọng\n- Lịch sử phát triển\n- Ứng dụng chính`;
-        slideNotes = "Giải thích ngắn gọn về chủ đề và cung cấp bối cảnh lịch sử.";
-        slideKeywords = ["overview", "introduction", topic.toLowerCase()];
-        break;
-      case 2:
-        slideTitle = 'Lợi ích chính';
-        slideContent = `- Lợi ích 1: Tăng hiệu quả công việc\n- Lợi ích 2: Tiết kiệm thời gian và chi phí\n- Lợi ích 3: Cải thiện chất lượng\n- Lợi ích 4: Phát triển bền vững`;
-        slideNotes = "Nhấn mạnh những lợi ích quan trọng nhất và đưa ra ví dụ cụ thể nếu có thể.";
-        slideKeywords = ["benefits", "advantages", "efficiency"];
-        break;
-      case 3:
-        slideTitle = 'Thống kê quan trọng';
-        slideContent = `- 75% người dùng thấy cải thiện hiệu suất\n- Tăng trưởng 30% so với năm trước\n- Chi phí giảm 15%\n- 90% khách hàng hài lòng`;
-        slideNotes = "Dẫn nguồn cho các số liệu và giải thích ý nghĩa của chúng.";
-        slideKeywords = ["statistics", "growth", "data", "numbers"];
-        break;
-      default:
-        slideTitle = `Chủ đề ${slideIndex}`;
-        slideContent = `- Điểm chính 1\n- Điểm chính 2\n- Điểm chính 3\n- Kết luận`;
-        slideNotes = "Thêm các chi tiết và ví dụ để minh họa các điểm chính.";
-        slideKeywords = ["key points", topic.toLowerCase(), "example"];
-    }
-    
-    demoPresentation.slides.push({
-      title: slideTitle,
-      content: slideContent,
-      notes: slideNotes,
-      keywords: slideKeywords
-    });
-  }
-  
-  // Tạo slide cuối - Kết luận
-  demoPresentation.slides.push({
-    title: "Kết luận",
-    content: `- Tóm tắt các điểm chính\n- Bước tiếp theo\n- Lời cảm ơn\n- Thông tin liên hệ`,
-    notes: "Tóm tắt các điểm chính, nêu bật bước tiếp theo và cảm ơn khán giả.",
-    keywords: ["conclusion", "summary", "thank you"]
-  });
-  
-  return demoPresentation;
-}
-
-// Hàm nâng cao nội dung mẫu cho chế độ DEMO
-function enhanceContentDemo(content, type = 'improve') {
-  console.log(`Nâng cao nội dung mẫu với kiểu: ${type}`);
-  
-  // Nội dung gốc
-  const originalContent = content.trim();
-  
-  // Xử lý dựa trên kiểu nâng cao
-  switch (type) {
-    case 'concise':
-      // Làm súc tích: Tóm tắt và rút gọn
-      return `${originalContent.split('\n').slice(0, 2).join('\n')}\n\nTóm tắt: ${originalContent.length > 100 ? originalContent.substring(0, 100) + '...' : originalContent}`;
-      
-    case 'elaborate':
-      // Mở rộng: Thêm chi tiết
-      return `${originalContent}\n\nPhân tích chi tiết:\n- Điểm 1: Tăng cường hiểu biết về chủ đề\n- Điểm 2: Cung cấp ví dụ thực tế\n- Điểm 3: Xem xét ứng dụng trong thực tiễn\n\nKết luận: Những thông tin trên giúp làm rõ và mở rộng ý tưởng ban đầu.`;
-      
-    case 'professional':
-      // Chuyên nghiệp: Sử dụng ngôn ngữ chuyên nghiệp
-      return `${originalContent}\n\nLưu ý cho người thuyết trình:\nHãy trình bày nội dung này một cách tự tin và chuyên nghiệp. Sử dụng dữ liệu và số liệu thống kê để hỗ trợ các luận điểm. Đảm bảo liên kết nội dung với mục tiêu tổng thể của bài thuyết trình.`;
-      
-    case 'creative':
-      // Sáng tạo: Thêm màu sắc và hình ảnh
-      return `✨ ${originalContent} ✨\n\nHãy tưởng tượng: ${originalContent.split(' ').slice(0, 5).join(' ')}... như một cuộc phiêu lưu đầy màu sắc!\n\nLà nguồn cảm hứng cho mọi người nghe.\n\n🚀 Hãy biến ý tưởng này thành hiện thực!`;
-      
-    default:
-      // Cải thiện tổng thể
-      return `${originalContent}\n\nNội dung đã được cải thiện:\n- Cấu trúc rõ ràng hơn\n- Thông tin được tổ chức tốt hơn\n- Ngôn ngữ chính xác và mạch lạc\n- Thêm các ví dụ minh họa\n\nĐề xuất: Sử dụng hình ảnh hoặc biểu đồ để minh họa các điểm chính.`;
-  }
-}
-
-/**
- * Tạo phản hồi AI mẫu cho chế độ demo
- * @param {Object} options - Tùy chọn cho phản hồi
- * @returns {string} - Nội dung phản hồi mẫu
- */
-function generateDemoAIResponse(options) {
-  const messages = options.messages || [];
-  const userMessage = messages.find(m => m.role === 'user')?.content || '';
-  
-  if (userMessage.length < 10) {
-    return 'Tôi không có đủ thông tin để trả lời. Vui lòng cung cấp thêm chi tiết.';
-  }
-  
-  return `Đây là phản hồi mẫu cho yêu cầu của bạn về "${userMessage.substring(0, 50)}...".
-  
-Phản hồi này được tạo ra ở chế độ DEMO vì không có API key hợp lệ. Trong môi trường thực tế, phản hồi sẽ được tạo bởi AI thông qua API.
-
-Để sử dụng chức năng này, vui lòng cấu hình API key trong file .env của server.`;
-}
-
-// Error handling
-app.use(errorLogger);
-app.use((err, req, res, next) => {
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal Server Error',
-    error: process.env.NODE_ENV === 'development' ? err : {}
-  });
-});
 
 // Connect to MongoDB
 connectDB().then(() => {
-  // Khởi động server sau khi kết nối MongoDB thành công
-  app.listen(PORT, () => {
-    console.log(`Server đang chạy tại cổng ${PORT}`);
-    console.log(`URL: http://localhost:${PORT}`);
-    if (DEMO_MODE) {
-      console.log('Chế độ DEMO đang hoạt động. Các API calls sẽ trả về dữ liệu mẫu.');
-    }
-  });
+  console.log('MongoDB connected successfully, starting server...');
 }).catch(err => {
   console.error('Không thể kết nối đến MongoDB:', err);
-  process.exit(1);
+  console.log('Server sẽ chạy ở chế độ demo database.');
+  global.useDemoDatabase = true;
+});
+
+// Luôn khởi động server bất kể kết nối MongoDB thành công hay không
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+  console.log(`URL: http://localhost:${PORT}`);
+  if (DEMO_MODE) {
+    console.log('Chế độ DEMO đang hoạt động. Các API calls sẽ trả về dữ liệu mẫu.');
+  }
+  if (global.useDemoDatabase) {
+    console.log('Database DEMO đang hoạt động. Dữ liệu sẽ không được lưu trữ.');
+  }
 });
 
 // Xử lý lỗi không bắt được
@@ -979,4 +813,4 @@ process.on('uncaughtException', (error) => {
 });
 
 // Export app để có thể sử dụng trong tests
-module.exports = app; 
+module.exports = app;

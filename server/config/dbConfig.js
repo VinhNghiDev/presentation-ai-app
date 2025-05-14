@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-require('dotenv').config();
+require('dotenv').config({ path: __dirname + '/../.env' });
 
 // Cấu hình kết nối MongoDB
 const DB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/presentation-ai';

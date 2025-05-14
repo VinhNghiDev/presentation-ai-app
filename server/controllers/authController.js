@@ -277,4 +277,184 @@ exports.checkUsers = async (req, res, next) => {
       error: 'Có lỗi xảy ra khi lấy danh sách người dùng'
     });
   }
+};
+
+/**
+ * Xử lý đăng nhập bằng Google
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.googleAuth = async (req, res) => {
+  try {
+    // Trong môi trường thực tế, sẽ tích hợp với OAuth2Client của Google
+    // và xác thực thông qua token ID
+    const googleUser = req.body;
+    
+    // Xử lý đơn giản cho mục đích demo: 
+    // Tìm hoặc tạo user dựa trên email từ Google
+    let user = await User.findOne({ email: googleUser.email });
+    
+    if (!user) {
+      // Tạo người dùng mới nếu chưa tồn tại
+      user = await User.create({
+        name: googleUser.name || googleUser.displayName,
+        email: googleUser.email,
+        googleId: googleUser.sub || googleUser.id,
+        password: await bcrypt.hash(Math.random().toString(36).slice(-8), 10),
+        avatar: googleUser.picture,
+        lastLogin: new Date(),
+        authProvider: 'google'
+      });
+    } else {
+      // Cập nhật thông tin Google ID nếu chưa có
+      if (!user.googleId) {
+        user.googleId = googleUser.sub || googleUser.id;
+        user.authProvider = 'google';
+        await user.save();
+      }
+      
+      // Cập nhật lần đăng nhập cuối
+      user.lastLogin = new Date();
+      await user.save();
+    }
+    
+    // Tạo token
+    const token = generateToken(user);
+    
+    // Tạo tham số để truyền về callback URL
+    const userData = encodeURIComponent(JSON.stringify({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    }));
+    
+    // Chuyển hướng về callback URL với token và userData
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?token=${token}&userData=${userData}`);
+  } catch (error) {
+    console.error('Lỗi đăng nhập Google:', error);
+    const errorMsg = encodeURIComponent('Có lỗi xảy ra khi đăng nhập với Google');
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?error=${errorMsg}`);
+  }
+};
+
+/**
+ * Xử lý đăng nhập bằng Microsoft
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.microsoftAuth = async (req, res) => {
+  try {
+    // Trong môi trường thực tế, sẽ tích hợp với MSAL của Microsoft
+    // và xác thực thông qua token
+    const msUser = req.body;
+    
+    // Xử lý đơn giản cho mục đích demo: 
+    // Tìm hoặc tạo user dựa trên email từ Microsoft
+    let user = await User.findOne({ email: msUser.email });
+    
+    if (!user) {
+      // Tạo người dùng mới nếu chưa tồn tại
+      user = await User.create({
+        name: msUser.name || msUser.displayName,
+        email: msUser.email,
+        microsoftId: msUser.sub || msUser.id,
+        password: await bcrypt.hash(Math.random().toString(36).slice(-8), 10),
+        avatar: msUser.picture,
+        lastLogin: new Date(),
+        authProvider: 'microsoft'
+      });
+    } else {
+      // Cập nhật thông tin Microsoft ID nếu chưa có
+      if (!user.microsoftId) {
+        user.microsoftId = msUser.sub || msUser.id;
+        user.authProvider = 'microsoft';
+        await user.save();
+      }
+      
+      // Cập nhật lần đăng nhập cuối
+      user.lastLogin = new Date();
+      await user.save();
+    }
+    
+    // Tạo token
+    const token = generateToken(user);
+    
+    // Tạo tham số để truyền về callback URL
+    const userData = encodeURIComponent(JSON.stringify({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    }));
+    
+    // Chuyển hướng về callback URL với token và userData
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?token=${token}&userData=${userData}`);
+  } catch (error) {
+    console.error('Lỗi đăng nhập Microsoft:', error);
+    const errorMsg = encodeURIComponent('Có lỗi xảy ra khi đăng nhập với Microsoft');
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?error=${errorMsg}`);
+  }
+};
+
+/**
+ * Xác thực Google OAuth callback
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.googleCallback = async (req, res) => {
+  try {
+    const { code } = req.query;
+    
+    // Trong môi trường thực tế, sẽ lấy access token từ code
+    // và sử dụng nó để lấy thông tin người dùng từ Google API
+    
+    // Giả lập thông tin người dùng cho mục đích demo
+    // Trong thực tế, dữ liệu này sẽ đến từ Google API
+    const googleUser = {
+      sub: `google_${Date.now()}`,
+      email: `user${Date.now()}@gmail.com`,
+      name: `Google User ${Date.now()}`,
+      picture: 'https://ui-avatars.com/api/?name=Google+User&background=0D8ABC&color=fff'
+    };
+    
+    // Gọi xử lý người dùng Google
+    req.body = googleUser;
+    await this.googleAuth(req, res);
+  } catch (error) {
+    console.error('Lỗi Google callback:', error);
+    const errorMsg = encodeURIComponent('Có lỗi xảy ra khi xác thực với Google');
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?error=${errorMsg}`);
+  }
+};
+
+/**
+ * Xác thực Microsoft OAuth callback
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.microsoftCallback = async (req, res) => {
+  try {
+    const { code } = req.query;
+    
+    // Trong môi trường thực tế, sẽ lấy access token từ code
+    // và sử dụng nó để lấy thông tin người dùng từ Microsoft API
+    
+    // Giả lập thông tin người dùng cho mục đích demo
+    // Trong thực tế, dữ liệu này sẽ đến từ Microsoft API
+    const msUser = {
+      sub: `microsoft_${Date.now()}`,
+      email: `user${Date.now()}@outlook.com`,
+      name: `Microsoft User ${Date.now()}`,
+      picture: 'https://ui-avatars.com/api/?name=Microsoft+User&background=0078D4&color=fff'
+    };
+    
+    // Gọi xử lý người dùng Microsoft
+    req.body = msUser;
+    await this.microsoftAuth(req, res);
+  } catch (error) {
+    console.error('Lỗi Microsoft callback:', error);
+    const errorMsg = encodeURIComponent('Có lỗi xảy ra khi xác thực với Microsoft');
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback?error=${errorMsg}`);
+  }
 }; 

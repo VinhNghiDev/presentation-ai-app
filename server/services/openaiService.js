@@ -2,12 +2,28 @@ const axios = require('axios');
 const config = require('../config/config');
 
 /**
+ * Kiểm tra API key có hợp lệ không
+ * @param {string} apiKey - API key cần kiểm tra
+ * @returns {boolean} - Kết quả kiểm tra
+ */
+function isValidApiKey(apiKey) {
+  return apiKey && 
+         apiKey !== 'your_openai_api_key_here' && 
+         apiKey.startsWith('sk-');
+}
+
+/**
  * Gọi OpenAI API
  * @param {Object} options - Tùy chọn cho API
  * @param {string} apiKey - API key (tùy chọn, mặc định lấy từ config)
  * @returns {Promise<string>} - Nội dung phản hồi
  */
 async function callOpenAI(options, apiKey = config.OPENAI_API_KEY) {
+  // Kiểm tra API key
+  if (!isValidApiKey(apiKey)) {
+    throw new Error('API key không hợp lệ hoặc không được cung cấp');
+  }
+
   const { model = config.DEFAULT_MODEL, messages, temperature = 0.7, maxTokens = 3000 } = options;
   
   const requestBody = {
@@ -17,21 +33,45 @@ async function callOpenAI(options, apiKey = config.OPENAI_API_KEY) {
     max_tokens: maxTokens
   };
   
-  const response = await axios.post(
-    `${config.OPENAI_API_URL}/chat/completions`,
-    requestBody,
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+  try {
+    // Đảm bảo URL đúng và đầy đủ
+    const apiUrl = `${config.OPENAI_API_URL}/chat/completions`;
+    console.log('Calling OpenAI API at:', apiUrl);
+    
+    const response = await axios.post(
+      apiUrl,
+      requestBody,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        timeout: 30000 // Timeout sau 30 giây
       }
+    );
+    
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      return response.data.choices[0].message.content;
+    } else {
+      throw new Error('Không nhận được phản hồi hợp lệ từ OpenAI API');
     }
-  );
-  
-  if (response.data && response.data.choices && response.data.choices.length > 0) {
-    return response.data.choices[0].message.content;
-  } else {
-    throw new Error('Không nhận được phản hồi hợp lệ từ OpenAI API');
+  } catch (error) {
+    if (error.response) {
+      // Lỗi từ API
+      console.error('OpenAI API Error:', {
+        status: error.response.status,
+        data: error.response.data
+      });
+      throw new Error(`OpenAI API error: ${error.response.data.error?.message || error.message}`);
+    } else if (error.request) {
+      // Không nhận được phản hồi
+      console.error('No response from OpenAI API:', error.request);
+      throw new Error('Không thể kết nối đến OpenAI API');
+    } else {
+      // Lỗi khác
+      console.error('Error calling OpenAI API:', error.message);
+      throw new Error(`Lỗi khi gọi OpenAI API: ${error.message}`);
+    }
   }
 }
 

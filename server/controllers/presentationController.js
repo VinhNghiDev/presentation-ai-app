@@ -3,6 +3,12 @@ const config = require('../config/config');
 const openaiService = require('../services/openaiService');
 const demoService = require('../services/demoService');
 const { createPresentationPrompt } = require('../utils/promptUtils');
+const { OpenAI } = require('openai');
+const { validatePresentation, validatePresentationOptions } = require('../utils/validation');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 /**
  * Lấy danh sách bài thuyết trình của người dùng
@@ -86,23 +92,120 @@ exports.getPresentation = async (req, res, next) => {
  * @param {Object} res - Express response object
  * @param {Function} next - Express next middleware function
  */
-exports.createPresentation = async (req, res, next) => {
+const createPresentation = async (req, res, next) => {
   try {
-    const { title, description, slides, template, isPublic, tags } = req.body;
-    
-    // Tạo bài thuyết trình mới
-    const newPresentation = await Presentation.create({
-      title,
-      description,
-      slides,
-      template,
-      isPublic,
-      tags,
-      userId: req.user._id
+    const {
+      topic,
+      style = 'professional',
+      language = 'vi',
+      purpose = 'education',
+      audience = 'general',
+      slides = 5,
+      includeCharts = true,
+      includeImages = true
+    } = req.body;
+
+    // Validate input
+    if (!topic) {
+      return res.status(400).json({ error: 'Chủ đề bài thuyết trình là bắt buộc' });
+    }
+
+    // Validate options
+    validatePresentationOptions({
+      style,
+      language,
+      purpose,
+      audience,
+      slides
     });
-    
-    res.status(201).json({ presentation: newPresentation });
+
+    // Tạo prompt cho OpenAI
+    const prompt = createPresentationPrompt({
+      topic,
+      style,
+      language,
+      purpose,
+      audience,
+      slides,
+      includeCharts,
+      includeImages
+    });
+
+    // Gọi API OpenAI
+    const completion = await openai.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "gpt-4",
+      temperature: 0.7,
+      max_tokens: 2000
+    });
+
+    // Parse response
+    let presentationData;
+    try {
+      const content = completion.choices[0].message.content;
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        presentationData = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Không thể parse JSON từ response');
+      }
+    } catch (error) {
+      console.error('Error parsing OpenAI response:', error);
+      return res.status(500).json({ error: 'Lỗi khi xử lý dữ liệu từ AI' });
+    }
+
+    // Validate presentation data
+    try {
+      validatePresentation(presentationData);
+    } catch (error) {
+      console.error('Validation error:', error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    // Enhance presentation with additional data
+    presentationData = await enhancePresentation(presentationData, {
+      style,
+      language,
+      purpose,
+      audience,
+      includeCharts,
+      includeImages
+    });
+
+    // Save to database if user is authenticated
+    if (req.user) {
+      try {
+        const presentation = new Presentation({
+          title: presentationData.title,
+          description: presentationData.description,
+          slides: presentationData.slides,
+          template: style,
+          isPublic: false,
+          tags: [topic],
+          userId: req.user._id,
+          metadata: {
+            topic,
+            style,
+            language,
+            purpose,
+            audience,
+            includeCharts,
+            includeImages,
+            created: new Date().toISOString()
+          }
+        });
+
+        await presentation.save();
+        presentationData.id = presentation._id;
+      } catch (dbError) {
+        console.error('Error saving to database:', dbError);
+        // Continue even if save fails
+      }
+    }
+
+    return res.json(presentationData);
   } catch (error) {
+    console.error('Error creating presentation:', error);
     next(error);
   }
 };
@@ -290,4 +393,74 @@ exports.handleGeneratePresentation = async (req, res, next) => {
     console.error('Lỗi tạo bài thuyết trình:', error);
     next(error);
   }
+};
+
+// Hàm tăng cường dữ liệu bài thuyết trình
+async function enhancePresentation(presentation, options) {
+  const { style, language, purpose, audience, includeCharts, includeImages } = options;
+
+  // Add metadata
+  presentation.metadata = {
+    style,
+    language,
+    purpose,
+    audience,
+    includeCharts,
+    includeImages,
+    created: new Date().toISOString()
+  };
+
+  // Add slide types and enhance content
+  presentation.slides = presentation.slides.map((slide, index) => {
+    // Determine slide type
+    let slideType = 'content';
+    if (index === 0) slideType = 'cover';
+    else if (index === 1) slideType = 'table-of-contents';
+    else if (index === presentation.slides.length - 1) slideType = 'conclusion';
+    else if (slide.content.includes('biểu đồ') || slide.content.includes('thống kê')) slideType = 'data';
+    else if (slide.content.includes('hình ảnh') || slide.content.includes('minh họa')) slideType = 'image';
+
+    // Add slide type
+    slide.type = slideType;
+
+    // Enhance content based on slide type
+    switch (slideType) {
+      case 'cover':
+        slide.content = slide.content.replace(/\n/g, '<br>');
+        break;
+      case 'table-of-contents':
+        slide.content = slide.content.split('\n').map(item => `• ${item}`).join('\n');
+        break;
+      case 'data':
+        if (includeCharts) {
+          slide.chartType = determineChartType(slide.content);
+        }
+        break;
+      case 'image':
+        if (includeImages && slide.keywords) {
+          slide.imageKeywords = slide.keywords;
+        }
+        break;
+      default:
+        // Format content as bullet points
+        slide.content = slide.content.split('\n').map(item => `• ${item}`).join('\n');
+    }
+
+    return slide;
+  });
+
+  return presentation;
+}
+
+// Hàm xác định loại biểu đồ phù hợp
+function determineChartType(content) {
+  if (content.includes('phần trăm') || content.includes('%')) return 'pie';
+  if (content.includes('tăng trưởng') || content.includes('thời gian')) return 'line';
+  if (content.includes('so sánh') || content.includes('đối chiếu')) return 'bar';
+  if (content.includes('phân bố') || content.includes('phân phối')) return 'scatter';
+  return 'bar'; // Default to bar chart
+}
+
+module.exports = {
+  createPresentation
 }; 
