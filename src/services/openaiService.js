@@ -2,16 +2,11 @@
 
 // src/services/openaiService.js - Sử dụng Fetch API thay vì Axios
 
+const config = require('../config');
+
 // Cấu hình OpenAI API
 const OPENAI_API_URL = 'https://api.openai.com/v1';
-const DEFAULT_MODEL = 'gpt-4o'; // Nâng cấp lên model mạnh mẽ hơn
-const FALLBACK_MODEL = 'gpt-3.5-turbo'; // Model dự phòng nếu gặp lỗi hoặc tối ưu chi phí
-
-// Xóa API key, chuyển sang cơ chế lấy từ biến môi trường hoặc cấu hình
-const SYSTEM_API_KEY = process.env.REACT_APP_OPENAI_API_KEY || '';
-
-// Fallback model nếu không có API key
-const USE_FALLBACK = !SYSTEM_API_KEY || SYSTEM_API_KEY === 'sk-' || SYSTEM_API_KEY === '';
+const DEFAULT_MODEL = 'gpt-4'; // hoặc 'gpt-3.5-turbo' cho chi phí thấp hơn
 
 /**
  * Tạo request options cho Fetch API
@@ -44,8 +39,7 @@ const createPresentationPrompt = (options) => {
     purpose = 'business',
     audience = 'general',
     includeCharts = true,
-    includeImages = true,
-    knowledge = null // Dữ liệu bổ sung từ knowledgeService
+    includeImages = true
   } = options;
   
   let styleDescription = '';
@@ -75,84 +69,48 @@ const createPresentationPrompt = (options) => {
   let audienceDescription = '';
   switch (audience) {
     case 'executive':
-      audienceDescription = 'Lãnh đạo và quản lý cấp cao, tập trung vào chiến lược và kết quả. Họ quan tâm đến tác động kinh doanh, ROI và định hướng dài hạn.';
+      audienceDescription = 'Lãnh đạo và quản lý cấp cao, tập trung vào chiến lược và kết quả';
       break;
     case 'technical':
-      audienceDescription = 'Chuyên gia kỹ thuật, có kiến thức chuyên môn trong lĩnh vực. Họ đánh giá cao chi tiết kỹ thuật, dữ liệu cụ thể và phân tích sâu.';
+      audienceDescription = 'Chuyên gia kỹ thuật, có kiến thức chuyên môn trong lĩnh vực';
       break;
     case 'student':
-      audienceDescription = 'Học sinh và sinh viên, nội dung giáo dục và dễ tiếp cận. Họ cần các khái niệm được giải thích rõ ràng với ví dụ thực tế.';
+      audienceDescription = 'Học sinh và sinh viên, nội dung giáo dục và dễ tiếp cận';
       break;
     case 'client':
-      audienceDescription = 'Khách hàng và đối tác, tập trung vào giá trị và lợi ích. Họ quan tâm đến giải pháp cho vấn đề của họ và ROI.';
+      audienceDescription = 'Khách hàng và đối tác, tập trung vào giá trị và lợi ích';
       break;
     default:
-      audienceDescription = 'Đối tượng đại chúng với nhiều cấp độ hiểu biết khác nhau, cần thông tin cân bằng giữa chuyên môn và khả năng tiếp cận.';
+      audienceDescription = 'Đối tượng đại chúng với nhiều cấp độ hiểu biết khác nhau';
   }
   
   let purposeDescription = '';
   switch (purpose) {
     case 'education':
-      purposeDescription = 'Giáo dục và đào tạo, truyền đạt kiến thức. Mục tiêu là làm cho người nghe hiểu rõ chủ đề và có thể áp dụng kiến thức.';
+      purposeDescription = 'Giáo dục và đào tạo, truyền đạt kiến thức';
       break;
     case 'marketing':
-      purposeDescription = 'Marketing và truyền thông, thuyết phục và thu hút. Mục tiêu là tạo ấn tượng và khuyến khích hành động cụ thể.';
+      purposeDescription = 'Marketing và truyền thông, thuyết phục và thu hút';
       break;
     case 'academic':
-      purposeDescription = 'Nghiên cứu học thuật, báo cáo khoa học. Mục tiêu là trình bày phát hiện, phương pháp nghiên cứu và đóng góp cho lĩnh vực.';
+      purposeDescription = 'Nghiên cứu học thuật, báo cáo khoa học';
       break;
     case 'personal':
-      purposeDescription = 'Sử dụng cá nhân, chia sẻ thông tin hoặc kỹ năng. Mục tiêu là kết nối với người nghe và truyền cảm hứng.';
+      purposeDescription = 'Sử dụng cá nhân, chia sẻ thông tin hoặc kỹ năng';
       break;
     default:
-      purposeDescription = 'Sử dụng trong môi trường doanh nghiệp và công việc. Mục tiêu là cung cấp thông tin, hỗ trợ quyết định và thúc đẩy kết quả kinh doanh.';
+      purposeDescription = 'Sử dụng trong môi trường doanh nghiệp và công việc';
   }
   
   // Bổ sung thông tin về biểu đồ và hình ảnh
   const mediaGuidance = `
 Hướng dẫn về phương tiện trực quan:
-- ${includeCharts ? 'Đề xuất dữ liệu biểu đồ thống kê cụ thể cho các slide có nội dung phù hợp, đặc biệt cho các slide về so sánh, thị trường, xu hướng, kết quả nghiên cứu, bao gồm cả số liệu thực tế.' : 'Không đề xuất biểu đồ.'}
-- ${includeImages ? 'Đề xuất từ khóa hình ảnh phù hợp cho mỗi slide, tập trung vào hình ảnh có tính biểu tượng và minh họa cao.' : 'Không đề xuất hình ảnh.'}
+- ${includeCharts ? 'Đề xuất dữ liệu biểu đồ thống kê cho các slide có nội dung phù hợp.' : 'Không đề xuất biểu đồ.'}
+- ${includeImages ? 'Đề xuất từ khóa hình ảnh phù hợp cho mỗi slide.' : 'Không đề xuất hình ảnh.'}
 `;
-
-  // Bổ sung yêu cầu về cấu trúc slide đặc biệt
-  const specialSlideRequests = `
-Yêu cầu về cấu trúc bài thuyết trình:
-1. Slide đầu tiên: Trang bìa với tiêu đề thu hút, tên người trình bày, và statement ngắn về giá trị của bài thuyết trình.
-2. Slide thứ hai: Outline/Mục lục rõ ràng với các phần chính của bài thuyết trình.
-3. Slide giới thiệu: Đặt vấn đề, tạo sự quan tâm, và thiết lập bối cảnh.
-4. Slide nội dung chính: Phân tích sâu với dữ liệu cụ thể, ví dụ thực tế, và so sánh.
-5. Slide case study: Ít nhất một nghiên cứu trường hợp điển hình liên quan đến chủ đề.
-6. Slide xu hướng: Phân tích xu hướng hiện tại và tương lai của lĩnh vực.
-7. Slide thách thức & giải pháp: Thảo luận về thách thức và đề xuất giải pháp cụ thể.
-8. Slide kết luận: Tóm tắt các điểm chính, tái khẳng định thông điệp chính.
-9. Slide Call-to-Action: Các bước tiếp theo cụ thể mà người nghe nên thực hiện.
-10. Slide Q&A: Chuẩn bị câu hỏi gợi ý để thảo luận.
-11. Slide tài liệu tham khảo: Liệt kê nguồn thông tin đáng tin cậy đã sử dụng.
-`;
-
-  // Nếu có dữ liệu từ knowledgeService, thêm nó vào prompt
-  let knowledgePrompt = '';
-  if (knowledge) {
-    knowledgePrompt = `
-Thông tin bổ sung cho bài thuyết trình:
-
-Thống kê thị trường:
-${knowledge.statistics.map(stat => `- ${stat.metric}: ${stat.value} (Nguồn: ${stat.source})`).join('\n')}
-
-Nghiên cứu trường hợp điển hình:
-${knowledge.caseStudies.map(cs => `- ${cs.company} (${cs.industry}): ${cs.challenge} -> ${cs.solution} -> ${cs.results}`).join('\n')}
-
-Xu hướng ngành hiện tại:
-${knowledge.trends.map(trend => `- ${trend}`).join('\n')}
-
-Nguồn tham khảo đáng tin cậy:
-${knowledge.sources.map(source => `- ${source.name}: ${source.url}`).join('\n')}
-`;
-  }
-
+  
   return `
-Tạo một bài thuyết trình chuyên nghiệp, chi tiết và có chiều sâu về chủ đề "${topic}" với ${slides} slides.
+Tạo một bài thuyết trình chi tiết và chuyên nghiệp về chủ đề "${topic}" với ${slides} slides.
 
 Thông tin cơ bản:
 - Phong cách: ${styleDescription}
@@ -160,19 +118,6 @@ Thông tin cơ bản:
 - Mục đích: ${purposeDescription}
 - Ngôn ngữ: ${language === 'vi' ? 'Tiếng Việt' : language === 'en' ? 'Tiếng Anh' : `${language}`}
 ${mediaGuidance}
-
-${specialSlideRequests}
-
-${knowledgePrompt}
-
-Yêu cầu về chất lượng nội dung:
-1. Độ sâu: Phân tích chuyên sâu từng khía cạnh của chủ đề, không chỉ dừng ở thông tin bề mặt.
-2. Dữ liệu cụ thể: Sử dụng số liệu, thống kê và dữ liệu thực tế từ các nguồn đáng tin cậy.
-3. Case studies: Cung cấp ít nhất 1-2 ví dụ thực tế điển hình liên quan đến chủ đề.
-4. Phân tích xu hướng: Nêu bật các xu hướng hiện tại và dự đoán trong tương lai.
-5. Thực tiễn: Tập trung vào ứng dụng thực tế và giá trị của chủ đề.
-6. Ngắn gọn nhưng đầy đủ: Mỗi slide phải súc tích nhưng vẫn đủ thông tin.
-7. Cấu trúc rõ ràng: Sắp xếp thông tin theo trình tự logic với liên kết giữa các phần.
 
 Format JSON trả về như sau:
 {
@@ -183,43 +128,41 @@ Format JSON trả về như sau:
       "title": "Tiêu đề slide",
       "content": "Nội dung slide với định dạng súc tích và dễ hiểu",
       "notes": "Ghi chú cho người thuyết trình (không hiển thị trong slide)",
-      "keywords": ["từ_khóa_1", "từ_khóa_2"], // Từ khóa hình ảnh gợi ý nếu cần
-      "slideType": "introduction|content|caseStudy|statistics|trends|conclusion|references" // Loại slide
+      "keywords": ["từ_khóa_1", "từ_khóa_2"] // Từ khóa hình ảnh gợi ý nếu cần
     }
   ]
 }
 
-Hãy đảm bảo rằng bạn trả về CHÍNH XÁC định dạng JSON này, không thêm bất kỳ tiền tố hoặc hậu tố nào.
+Hướng dẫn chi tiết:
+1. Slide đầu tiên cần là trang bìa hấp dẫn với tiêu đề chính và phụ đề.
+2. Slide cuối cùng nên là trang kết luận và lời cảm ơn.
+3. Mỗi slide nên có cấu trúc rõ ràng, nội dung ngắn gọn (tối đa 5-7 điểm chính).
+4. Tránh đoạn văn dài, ưu tiên sử dụng danh sách, từ khóa và câu ngắn.
+5. Đối với các slide có số liệu, hãy đề xuất dạng biểu đồ phù hợp (nếu được yêu cầu).
+6. Ghi chú cho người thuyết trình nên bao gồm thông tin bổ sung, lời thoại gợi ý.
+
+Hãy đảm bảo nội dung:
+- Có tính học thuật và đáng tin cậy nếu là bài thuyết trình giáo dục/học thuật
+- Có tính thuyết phục và hấp dẫn nếu là bài thuyết trình marketing/kinh doanh
+- Dễ hiểu và phù hợp với trình độ nếu là bài thuyết trình cho học sinh/sinh viên
+- Chuyên nghiệp và định hướng kết quả nếu là bài thuyết trình cho lãnh đạo
+
+Đặc biệt chú ý tạo cấu trúc rõ ràng và hợp lý trong toàn bộ bài thuyết trình.
 `;
 };
 
 /**
  * Tạo bài thuyết trình bằng OpenAI API
  * @param {Object} options - Tùy chọn bài thuyết trình
- * @param {string} [apiKey] - API key của OpenAI (tùy chọn, sẽ sử dụng key hệ thống nếu không cung cấp)
+ * @param {string} apiKey - API key của OpenAI
  * @returns {Promise<Object>} - Dữ liệu bài thuyết trình
  */
 export const generatePresentation = async (options, apiKey) => {
   try {
-    console.log("openaiService.js: Bắt đầu tạo bài thuyết trình với OpenAI");
-    
-    // Sử dụng API key được cung cấp hoặc API key hệ thống
-    const effectiveApiKey = apiKey || SYSTEM_API_KEY;
-    
-    // Nếu không có API key hợp lệ hoặc đã cấu hình dùng fallback, chuyển sang tạo dữ liệu mẫu
-    if (USE_FALLBACK || !effectiveApiKey || effectiveApiKey === 'sk-' || effectiveApiKey === '') {
-      console.log('openaiService.js: Sử dụng dữ liệu mẫu thay thế');
-      
-      // Tạo dữ liệu mẫu có cấu trúc đầy đủ
-      const fallbackData = createFallbackPresentation(options);
-      
-      // Giả lập độ trễ mạng để giao diện người dùng hiển thị tiến trình
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      return fallbackData;
+    if (!apiKey) {
+      throw new Error('OpenAI API Key không được cung cấp');
     }
 
-    console.log("openaiService.js: Tạo prompt cho API");
     const prompt = createPresentationPrompt(options);
     
     const requestBody = {
@@ -227,7 +170,7 @@ export const generatePresentation = async (options, apiKey) => {
       messages: [
         {
           role: 'system',
-          content: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp, chất lượng cao. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Bạn tạo nội dung phân tích sâu, sử dụng dữ liệu thực tế, case studies, và xu hướng hiện tại. Luôn trả về JSON theo định dạng yêu cầu, không thêm bất kỳ văn bản giải thích nào trước hoặc sau JSON.'
+          content: 'Bạn là trợ lý AI chuyên tạo nội dung bài thuyết trình chuyên nghiệp. Bạn có kiến thức sâu rộng về nhiều lĩnh vực và hiểu rõ nguyên tắc thiết kế bài thuyết trình hiệu quả. Luôn trả về JSON theo định dạng yêu cầu.'
         },
         {
           role: 'user',
@@ -235,123 +178,101 @@ export const generatePresentation = async (options, apiKey) => {
         }
       ],
       temperature: 0.7,
-      max_tokens: 4000 // Tăng max_tokens để đảm bảo đủ chỗ cho nội dung chất lượng cao
+      max_tokens: 3000
     };
 
-    try {
-      // Sử dụng model mạnh hơn cho chất lượng nội dung tốt hơn
-      console.log(`openaiService.js: Đang gọi model ${requestBody.model}...`);
-      const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(effectiveApiKey, requestBody));
+    // Sử dụng Fetch API thay vì Axios
+    const response = await fetch(`${config.API_URL}/openai/chat/completions`, createRequestOptions(apiKey, requestBody));
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0) {
+      const content = data.choices[0].message.content;
       
-      if (!response.ok) {
-        console.error("openaiService.js: Lỗi từ API, status:", response.status);
+      try {
+        // Phân tích cú pháp JSON từ phản hồi
+        const jsonStartIndex = content.indexOf('{');
+        const jsonEndIndex = content.lastIndexOf('}') + 1;
         
-        // Thử lại với model nhẹ hơn nếu gặp lỗi
-        if (requestBody.model !== FALLBACK_MODEL) {
-          console.log(`openaiService.js: Thử lại với model ${FALLBACK_MODEL}...`);
-          requestBody.model = FALLBACK_MODEL;
-          requestBody.max_tokens = 3000; // Giảm token để tương thích với model nhẹ hơn
+        if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
+          const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
+          let presentationData;
           
-          const fallbackResponse = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(effectiveApiKey, requestBody));
-          
-          if (!fallbackResponse.ok) {
-            console.error("openaiService.js: Lỗi từ API khi dùng model dự phòng, status:", fallbackResponse.status);
-            return createFallbackPresentation(options);
+          try {
+            presentationData = JSON.parse(jsonContent);
+          } catch (innerError) {
+            console.error('Lỗi phân tích JSON, thử dùng phương pháp khác:', innerError);
+            // Thử cách khác - tìm bằng regex
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              presentationData = JSON.parse(jsonMatch[0]);
+            } else {
+              throw new Error('Không thể phân tích dữ liệu JSON từ phản hồi');
+            }
           }
           
-          const fallbackData = await fallbackResponse.json();
-          return processAPIResponse(fallbackData, options);
+          // Đảm bảo dữ liệu có cấu trúc hợp lệ
+          if (!presentationData.slides || !Array.isArray(presentationData.slides)) {
+            presentationData.slides = createFallbackSlides(content, options.slides);
+          }
+          
+          // Thêm metadata
+          presentationData.metadata = {
+            created: new Date().toISOString(),
+            topic: options.topic,
+            style: options.style,
+            language: options.language,
+            slideCount: options.slides
+          };
+          
+          return presentationData;
+        } else {
+          throw new Error('Không tìm thấy dữ liệu JSON hợp lệ trong phản hồi');
         }
+      } catch (jsonError) {
+        console.error('Lỗi phân tích JSON:', jsonError);
         
-        // Nếu API trả về lỗi và không thể thử lại, sử dụng dữ liệu mẫu thay thế
-        return createFallbackPresentation(options);
+        // Nếu không phân tích được JSON, tạo dữ liệu có cấu trúc từ nội dung
+        const fallbackData = {
+          title: options.topic,
+          description: `Bài thuyết trình về ${options.topic}`,
+          slides: createFallbackSlides(content, options.slides),
+          metadata: {
+            created: new Date().toISOString(),
+            topic: options.topic,
+            style: options.style,
+            language: options.language,
+            slideCount: options.slides,
+            fallback: true
+          }
+        };
+        
+        return fallbackData;
       }
-      
-      const data = await response.json();
-      return processAPIResponse(data, options);
-    } catch (fetchError) {
-      console.error("openaiService.js: Lỗi fetch:", fetchError);
-      return createFallbackPresentation(options);
+    } else {
+      throw new Error('Không nhận được phản hồi hợp lệ từ OpenAI');
     }
   } catch (error) {
-    console.error("openaiService.js: Lỗi tổng thể:", error);
-    return createFallbackPresentation(options);
+    console.error('Error generating presentation:', error);
+    throw error;
   }
 };
 
 /**
- * Xử lý phản hồi từ API OpenAI
- * @param {Object} data - Dữ liệu phản hồi từ API
- * @param {Object} options - Tùy chọn ban đầu để tạo fallback nếu cần
- * @returns {Object} - Dữ liệu bài thuyết trình đã xử lý
- */
-function processAPIResponse(data, options) {
-  if (data.choices && data.choices.length > 0) {
-    const content = data.choices[0].message.content;
-    
-    try {
-      // Phân tích cú pháp JSON từ phản hồi
-      // Tìm từ dấu { đầu tiên đến dấu } cuối cùng
-      const jsonStartIndex = content.indexOf('{');
-      const jsonEndIndex = content.lastIndexOf('}') + 1;
-      
-      if (jsonStartIndex >= 0 && jsonEndIndex > jsonStartIndex) {
-        const jsonContent = content.substring(jsonStartIndex, jsonEndIndex);
-        let presentationData;
-        
-        try {
-          presentationData = JSON.parse(jsonContent);
-          
-          // Đảm bảo dữ liệu có cấu trúc đúng
-          if (!presentationData.slides || !Array.isArray(presentationData.slides)) {
-            throw new Error('Dữ liệu thiếu trường slides hoặc không đúng định dạng');
-          }
-          
-          // Đảm bảo mỗi slide có đủ các trường cần thiết
-          presentationData.slides = presentationData.slides.map((slide, index) => {
-            return {
-              title: slide.title || `Slide ${index + 1}`,
-              content: slide.content || '',
-              notes: slide.notes || '',
-              keywords: Array.isArray(slide.keywords) ? slide.keywords : [],
-              slideType: slide.slideType || 'content'
-            };
-          });
-          
-          return presentationData;
-        } catch (parseError) {
-          console.error('openaiService.js: Lỗi phân tích JSON:', parseError);
-          return createFallbackPresentation(options);
-        }
-      } else {
-        console.error('openaiService.js: Không tìm thấy JSON hợp lệ trong phản hồi');
-        return createFallbackPresentation(options);
-      }
-    } catch (error) {
-      console.error('openaiService.js: Lỗi xử lý phản hồi:', error);
-      return createFallbackPresentation(options);
-    }
-  } else {
-    console.error('openaiService.js: Không có choices trong phản hồi');
-    return createFallbackPresentation(options);
-  }
-}
-
-/**
  * Cải thiện nội dung slide hiện có
  * @param {string} content - Nội dung cần cải thiện
- * @param {string} [apiKey] - API key của OpenAI (tùy chọn, sẽ sử dụng key hệ thống nếu không cung cấp)
+ * @param {string} apiKey - API key của OpenAI
  * @returns {Promise<string>} - Nội dung được cải thiện
  */
 export const enhanceSlideContent = async (content, apiKey) => {
   try {
-    // Sử dụng API key được cung cấp hoặc API key hệ thống
-    const effectiveApiKey = apiKey || SYSTEM_API_KEY;
-    
-    // Nếu không có API key hợp lệ, trả về nội dung ban đầu
-    if (!effectiveApiKey || effectiveApiKey === 'sk-') {
-      console.log('Không có API key hợp lệ để cải thiện nội dung');
-      return content;
+    if (!apiKey) {
+      throw new Error('OpenAI API Key không được cung cấp');
     }
     
     if (!content || content.trim().length < 10) {
@@ -380,8 +301,8 @@ export const enhanceSlideContent = async (content, apiKey) => {
     const timeoutId = setTimeout(() => controller.abort(), 10000); // Timeout sau 10 giây
     
     try {
-      const response = await fetch(`${OPENAI_API_URL}/chat/completions`, {
-        ...createRequestOptions(effectiveApiKey, requestBody),
+      const response = await fetch(`${config.API_URL}/openai/chat/completions`, {
+        ...createRequestOptions(apiKey, requestBody),
         signal: controller.signal
       });
       
@@ -452,7 +373,7 @@ export const suggestImageKeywords = async (slideContent, apiKey) => {
     };
 
     // Sử dụng Fetch API
-    const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(apiKey, requestBody));
+    const response = await fetch(`${config.API_URL}/openai/chat/completions`, createRequestOptions(apiKey, requestBody));
     
     if (!response.ok) {
       console.error('Lỗi từ API:', response.status);
@@ -603,7 +524,7 @@ export const translateContent = async (content, targetLanguage, apiKey) => {
     };
 
     // Sử dụng Fetch API
-    const response = await fetch(`${OPENAI_API_URL}/chat/completions`, createRequestOptions(apiKey, requestBody));
+    const response = await fetch(`${config.API_URL}/openai/chat/completions`, createRequestOptions(apiKey, requestBody));
     
     if (!response.ok) {
       return content; // Trả về nội dung gốc nếu có lỗi
@@ -623,132 +544,77 @@ export const translateContent = async (content, targetLanguage, apiKey) => {
 };
 
 /**
- * Tạo bài thuyết trình mẫu khi không có API key hoặc API lỗi
- * @param {Object} options - Tùy chọn bài thuyết trình
- * @returns {Object} - Dữ liệu bài thuyết trình mẫu
+ * Tạo dữ liệu slide dự phòng khi không thể phân tích JSON
+ * @param {string} content - Nội dung từ API
+ * @param {number} slideCount - Số slide cần tạo
+ * @returns {Array} - Mảng các slide
  */
-function createFallbackPresentation(options) {
-  const { topic } = options;
-  const slides = options.slides || 5;
+function createFallbackSlides(content, slideCount) {
+  // Tách nội dung thành từng phần dựa trên dòng trống
+  const sections = content.split('\n\n');
   
-  // Tạo tiêu đề bài thuyết trình
-  const title = `${topic.charAt(0).toUpperCase() + topic.slice(1)}`;
-  
-  // Tạo mảng slide
-  const presentationSlides = [];
-  
-  // Slide đầu tiên (trang bìa)
-  presentationSlides.push({
-    title: title,
-    content: `Bài thuyết trình về ${topic}`,
-    notes: `Giới thiệu bản thân và mục tiêu của bài thuyết trình về ${topic}`,
-    keywords: [topic, 'presentation', 'intro']
-  });
-  
-  // Slide thứ hai (giới thiệu)
-  presentationSlides.push({
-    title: "Giới thiệu",
-    content: `- Tổng quan về ${topic}\n- Tầm quan trọng\n- Mục tiêu của bài thuyết trình`,
-    notes: "Giải thích ngắn gọn về chủ đề và lý do tại sao nó quan trọng",
-    keywords: ["overview", topic, "introduction"]
-  });
-  
-  // Các slide nội dung chính
-  for (let i = 3; i <= slides - 1; i++) {
-    const slideTitle = `Phần ${i-2}: ${getContentTitle(topic, i-2)}`;
-    const slideContent = getContentForSlide(topic, i-2);
+  // Nếu không có đủ phần để tạo các slide
+  if (sections.length < slideCount) {
+    // Tạo slide cơ bản với tiêu đề và nội dung ngẫu nhiên
+    const basicSlides = [];
     
-    presentationSlides.push({
-      title: slideTitle,
-      content: slideContent,
-      notes: `Trình bày về ${slideTitle}. Nhấn mạnh các điểm chính.`,
-      keywords: getKeywordsForSlide(topic, i-2)
+    // Slide đầu tiên - Trang bìa
+    basicSlides.push({
+      title: "Trang bìa",
+      content: "Bài thuyết trình của tôi",
+      notes: "Giới thiệu bản thân và chủ đề"
+    });
+    
+    // Các slide nội dung
+    for (let i = 1; i < slideCount - 1; i++) {
+      basicSlides.push({
+        title: `Slide ${i + 1}`,
+        content: `Nội dung cho slide ${i + 1}`,
+        notes: `Ghi chú cho slide ${i + 1}`
+      });
+    }
+    
+    // Slide cuối - Kết luận
+    basicSlides.push({
+      title: "Kết luận",
+      content: "Cảm ơn sự chú ý của quý vị!",
+      notes: "Tóm tắt những điểm chính và kết thúc bài thuyết trình"
+    });
+    
+    return basicSlides;
+  }
+  
+  // Nếu có đủ phần, tạo slide từ các phần
+  const slides = [];
+  
+  // Số phần cho mỗi slide
+  const sectionsPerSlide = Math.max(1, Math.floor(sections.length / slideCount));
+  
+  for (let i = 0; i < slideCount; i++) {
+    const startIdx = i * sectionsPerSlide;
+    const endIdx = Math.min(startIdx + sectionsPerSlide, sections.length);
+    
+    // Lấy phần đầu tiên làm tiêu đề nếu có thể
+    const sectionContent = sections.slice(startIdx, endIdx).join('\n\n');
+    const contentLines = sectionContent.split('\n');
+    
+    // Tìm kiếm tiêu đề trong các dòng
+    let title = contentLines[0] || `Slide ${i + 1}`;
+    let content = sectionContent;
+    
+    // Nếu dòng đầu tiên ngắn, sử dụng nó làm tiêu đề và loại bỏ khỏi nội dung
+    if (title.length < 100 && contentLines.length > 1) {
+      content = contentLines.slice(1).join('\n');
+    } else {
+      title = `Slide ${i + 1}`;
+    }
+    
+    slides.push({
+      title,
+      content,
+      notes: `Ghi chú cho ${title}`
     });
   }
   
-  // Slide cuối cùng (kết luận)
-  presentationSlides.push({
-    title: "Kết luận",
-    content: `- Tóm tắt các điểm chính\n- Lợi ích của ${topic}\n- Cảm ơn và Q&A`,
-    notes: "Tóm tắt những gì đã trình bày và mở phần hỏi đáp",
-    keywords: ["conclusion", "summary", topic]
-  });
-  
-  // Trả về dữ liệu bài thuyết trình hoàn chỉnh
-  return {
-    title: title,
-    description: `Bài thuyết trình về ${topic}`,
-    slides: presentationSlides
-  };
-}
-
-/**
- * Tạo tiêu đề nội dung dựa trên chủ đề và số thứ tự
- * @param {string} topic - Chủ đề
- * @param {number} index - Số thứ tự
- * @returns {string} - Tiêu đề nội dung
- */
-function getContentTitle(topic, index) {
-  const titles = [
-    "Tổng quan",
-    "Lợi ích chính",
-    "Các yếu tố cần thiết",
-    "Phương pháp tiếp cận",
-    "Ứng dụng thực tế",
-    "Xu hướng mới nhất",
-    "Thách thức và giải pháp",
-    "Nghiên cứu trường hợp",
-    "So sánh và đánh giá",
-    "Triển vọng tương lai"
-  ];
-  
-  return titles[index % titles.length];
-}
-
-/**
- * Tạo nội dung cho slide dựa trên chủ đề và số thứ tự
- * @param {string} topic - Chủ đề
- * @param {number} index - Số thứ tự
- * @returns {string} - Nội dung slide
- */
-function getContentForSlide(topic, index) {
-  switch (index % 5) {
-    case 0:
-      return `- Định nghĩa về ${topic}\n- Lịch sử phát triển\n- Tầm quan trọng trong bối cảnh hiện tại\n- Các khái niệm cơ bản`;
-    case 1:
-      return `- Lợi ích chính của ${topic}\n- Tác động tích cực\n- Tiềm năng ứng dụng\n- Nghiên cứu và số liệu`;
-    case 2:
-      return `- Các thành phần chính của ${topic}\n- Yếu tố then chốt\n- Mối quan hệ giữa các yếu tố\n- Tiêu chuẩn đánh giá`;
-    case 3:
-      return `- Phương pháp triển khai ${topic}\n- Các bước thực hiện\n- Công cụ và kỹ thuật\n- Quy trình tối ưu`;
-    case 4:
-      return `- Ví dụ thực tế về ${topic}\n- Kết quả đạt được\n- Bài học kinh nghiệm\n- Hướng phát triển`;
-    default:
-      return `- Thông tin quan trọng về ${topic}\n- Điểm cần lưu ý\n- Đề xuất và khuyến nghị`;
-  }
-}
-
-/**
- * Tạo từ khóa cho slide dựa trên chủ đề và số thứ tự
- * @param {string} topic - Chủ đề
- * @param {number} index - Số thứ tự
- * @returns {Array} - Mảng từ khóa
- */
-function getKeywordsForSlide(topic, index) {
-  const baseKeywords = [topic];
-  
-  switch (index % 5) {
-    case 0:
-      return [...baseKeywords, "overview", "introduction", "concept"];
-    case 1:
-      return [...baseKeywords, "benefits", "advantages", "statistics"];
-    case 2:
-      return [...baseKeywords, "elements", "components", "structure"];
-    case 3:
-      return [...baseKeywords, "methods", "approach", "implementation"];
-    case 4:
-      return [...baseKeywords, "examples", "case study", "results"];
-    default:
-      return [...baseKeywords, "information", "notes", "summary"];
-  }
-}
+  return slides;
+} 

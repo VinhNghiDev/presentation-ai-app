@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import exportService from '../../services/exportService';
+import { toast } from 'react-toastify';
 import './ExportPanel.css';
 
 /**
@@ -10,6 +11,7 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
   const [exportStatus, setExportStatus] = useState('');
   const [exportError, setExportError] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('pdf');
+  const [quality, setQuality] = useState('high');
 
   /**
    * Xử lý sự kiện xuất file
@@ -24,15 +26,15 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
       switch (selectedFormat) {
         case 'pdf':
           setExportStatus('Đang tạo file PDF...');
-          result = await exportService.exportToPDF(slideElements, presentation.title);
+          result = await exportService.exportToPDF(slideElements, presentation.title, quality);
           break;
         case 'png':
           setExportStatus('Đang tạo file PNG...');
-          result = await exportService.exportToPNG(slideElements, presentation.title);
+          result = await exportService.exportToPNG(slideElements, presentation.title, quality);
           break;
         case 'pptx':
           setExportStatus('Đang tạo file PPTX...');
-          result = await exportService.exportToPPTX(presentation, slideElements);
+          result = await exportService.exportToPPTX(presentation, slideElements, quality);
           break;
         case 'html':
           setExportStatus('Đang tạo file HTML...');
@@ -44,6 +46,7 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
 
       if (result.success) {
         setExportStatus(`Xuất thành công! File: ${result.fileName}`);
+        toast.success('Xuất file thành công!');
       } else {
         throw new Error('Lỗi không xác định khi xuất file');
       }
@@ -51,6 +54,44 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
       console.error('Lỗi khi xuất file:', error);
       setExportError(error.message || 'Có lỗi xảy ra khi xuất file');
       setExportStatus('');
+      toast.error('Có lỗi xảy ra khi xuất file: ' + error.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleCloudSave = async (service) => {
+    try {
+      setExporting(true);
+      setExportError('');
+      setExportStatus(`Đang lưu lên ${service}...`);
+
+      let result;
+      switch (service) {
+        case 'google':
+          result = await exportService.saveToGoogleDrive(presentation);
+          break;
+        case 'dropbox':
+          result = await exportService.saveToDropbox(presentation);
+          break;
+        case 'onedrive':
+          result = await exportService.saveToOneDrive(presentation);
+          break;
+        default:
+          throw new Error('Dịch vụ không được hỗ trợ');
+      }
+
+      if (result.success) {
+        setExportStatus(`Đã lưu lên ${service} thành công!`);
+        toast.success('Đã lưu lên cloud thành công!');
+      } else {
+        throw new Error('Lỗi không xác định khi lưu lên cloud');
+      }
+    } catch (error) {
+      console.error('Lỗi khi lưu lên cloud:', error);
+      setExportError(error.message || 'Có lỗi xảy ra khi lưu lên cloud');
+      setExportStatus('');
+      toast.error('Có lỗi xảy ra khi lưu lên cloud: ' + error.message);
     } finally {
       setExporting(false);
     }
@@ -101,6 +142,20 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
             </button>
           </div>
         </div>
+
+        <div className="form-group">
+          <label>Chất lượng:</label>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value)}
+            className="quality-select"
+            disabled={exporting}
+          >
+            <option value="low">Thấp</option>
+            <option value="medium">Trung bình</option>
+            <option value="high">Cao</option>
+          </select>
+        </div>
         
         <div className="format-description">
           {selectedFormat === 'pdf' && (
@@ -115,6 +170,33 @@ const ExportPanel = ({ presentation, slideElements, onClose }) => {
           {selectedFormat === 'html' && (
             <p>Xuất thành trang web HTML, có thể xem trên trình duyệt và dễ dàng chia sẻ trực tuyến.</p>
           )}
+        </div>
+
+        <div className="cloud-options">
+          <h4>Lưu lên cloud</h4>
+          <div className="cloud-buttons">
+            <button
+              onClick={() => handleCloudSave('google')}
+              disabled={exporting}
+              className="cloud-button google"
+            >
+              Google Drive
+            </button>
+            <button
+              onClick={() => handleCloudSave('dropbox')}
+              disabled={exporting}
+              className="cloud-button dropbox"
+            >
+              Dropbox
+            </button>
+            <button
+              onClick={() => handleCloudSave('onedrive')}
+              disabled={exporting}
+              className="cloud-button onedrive"
+            >
+              OneDrive
+            </button>
+          </div>
         </div>
       </div>
 
