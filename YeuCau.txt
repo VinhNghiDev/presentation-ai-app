@@ -1,0 +1,58 @@
+1. Tổng quan phần mềm
+
+Phần mềm là một công cụ hỗ trợ tạo bài thuyết trình, tài liệu, và nội dung trực quan dựa trên AI, giúp người dùng tiết kiệm thời gian và công sức. Phần mềm có khả năng tự động hóa quy trình thiết kế, đề xuất bố cục, và tạo nội dung phù hợp với yêu cầu của người dùng.
+
+2. Tính năng chính
+2.1. Tạo bài thuyết trình tự động
+Cho phép người dùng nhập chủ đề hoặc ý tưởng, sau đó phần mềm tự động tạo bài thuyết trình với bố cục hợp lý.
+Hỗ trợ nhiều mẫu template chuyên nghiệp, phù hợp với các ngành nghề khác nhau (kinh doanh, giáo dục, marketing, v.v.).
+Tự động đề xuất hình ảnh, biểu đồ, và icon phù hợp với nội dung.
+2.2. Hỗ trợ AI thông minh
+AI có khả năng phân tích và đề xuất nội dung dựa trên chủ đề được nhập.
+Hỗ trợ tạo văn bản ngắn gọn, súc tích, và phù hợp với mục đích sử dụng.
+Tích hợp khả năng dịch thuật đa ngôn ngữ để hỗ trợ người dùng quốc tế.
+2.3. Tùy chỉnh linh hoạt
+Cho phép người dùng chỉnh sửa nội dung, thay đổi bố cục, màu sắc, font chữ, và hình ảnh.
+Hỗ trợ kéo thả (drag-and-drop) để tùy chỉnh các phần tử trong bài thuyết trình.
+Tích hợp thư viện hình ảnh, video, và icon miễn phí hoặc cao cấp.
+2.4. Xuất và chia sẻ dễ dàng
+Hỗ trợ xuất file dưới nhiều định dạng (PDF, PPTX, PNG, v.v.).
+Cho phép chia sẻ trực tiếp qua link hoặc tích hợp với các nền tảng như Google Drive, Dropbox.
+Hỗ trợ trình chiếu trực tiếp từ phần mềm.
+2.5. Hợp tác nhóm
+Cho phép nhiều người dùng cùng chỉnh sửa và làm việc trên một bài thuyết trình.
+Tích hợp tính năng bình luận và phản hồi trực tiếp trong phần mềm.
+2.6. Tích hợp với các công cụ khác
+Kết nối với các nền tảng như Google Slides, PowerPoint, Canva, v.v.
+Hỗ trợ API để tích hợp với các hệ thống quản lý nội dung (CMS) hoặc công cụ khác.
+2.7. Tính năng bổ sung
+
+Trong quá trình làm việc và học tập, sinh viên có thể ứng dụng những chức năng mới phù hợp với nhu cầu, thị hiếu của người dùng để hệ thống càng thêm hoàn chỉnh. Việc hệ thống có thể bảo trì và mở rộng là yếu tố cần thiết cho một phần mềm hoạt động.
+
+3. Yêu cầu kỹ thuật
+3.1. Nền tảng hỗ trợ
+Web-based (hoạt động trên trình duyệt).
+Ứng dụng di động (iOS, Android).
+Ứng dụng desktop (Windows, macOS).
+3.2. Công nghệ sử dụng
+AI và machine learning để tạo nội dung và đề xuất thiết kế.
+Cloud-based để lưu trữ và đồng bộ dữ liệu.
+Hỗ trợ API mở để tích hợp với các hệ thống khác.
+3.3. Hiệu suất
+Tốc độ xử lý nhanh, đảm bảo trải nghiệm mượt mà.
+Hỗ trợ xử lý đa nhiệm và làm việc với dữ liệu lớn.
+4. Yêu cầu về giao diện người dùng (UIUX)
+Giao diện đơn giản, dễ sử dụng, phù hợp với cả người dùng không chuyên.
+Hỗ trợ dark mode và light mode.
+Thiết kế responsive, tương thích với nhiều kích thước màn hình.
+5. Bảo mật và quyền riêng tư
+Đảm bảo dữ liệu người dùng được mã hóa và bảo mật.
+Hỗ trợ xác thực hai yếu tố (2FA) để tăng cường bảo mật.
+6. Chi phí và mô hình kinh doanh
+Cung cấp bản miễn phí với các tính năng cơ bản.
+Các gói trả phí với tính năng nâng cao (Premium, Pro, Enterprise).
+Hỗ trợ đăng ký theo tháng hoặc theo năm.
+7. Hỗ trợ khách hàng
+Hỗ trợ trực tuyến 247 qua chat, email, hoặc điện thoại.
+Cung cấp tài liệu hướng dẫn, video tutorial, và FAQ chi tiết.
+Tích hợp cộng đồng người dùng để chia sẻ kinh nghiệm và hỗ trợ lẫn nhau.
