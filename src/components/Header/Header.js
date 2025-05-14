@@ -4,7 +4,7 @@ import authService from '../../services/authService';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 import './Header.css';
 
-const Header = () => {
+const Header = ({ onCollaborationClick }) => {
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef(null);
@@ -47,6 +47,15 @@ const Header = () => {
               <Link to="/dashboard" className="nav-link">Dashboard</Link>
               {isAdmin && (
                 <Link to="/users" className="nav-link">User Management</Link>
+              )}
+              {onCollaborationClick && (
+                <button 
+                  className="nav-link"
+                  onClick={onCollaborationClick}
+                >
+                  <i className="bi bi-people"></i>
+                  Collaboration
+                </button>
               )}
               <div className="user-menu" ref={userMenuRef}>
                 <div 

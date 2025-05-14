@@ -1,9 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import 'bootstrap/dist/css/bootstrap.min.css';
 import './Footer.css';
 
 const Footer = () => {
   const currentYear = new Date().getFullYear();
+  const [language, setLanguage] = useState('vi');
+
+  const handleLanguageChange = (lang) => {
+    setLanguage(lang);
+    // TODO: Implement language change logic
+  };
 
   return (
     <footer className="footer">
@@ -21,16 +28,16 @@ const Footer = () => {
               Tạo bài thuyết trình chuyên nghiệp nhanh chóng với công nghệ AI. Dễ dàng tạo, chỉnh sửa và chia sẻ nội dung một cách đơn giản.
             </p>
             <div className="social-links mb-3">
-              <a href="#" className="social-link" aria-label="Facebook">
+              <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" className="social-link" aria-label="Facebook">
                 <i className="bi bi-facebook"></i>
               </a>
-              <a href="#" className="social-link" aria-label="Twitter">
+              <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="social-link" aria-label="Twitter">
                 <i className="bi bi-twitter"></i>
               </a>
-              <a href="#" className="social-link" aria-label="Instagram">
+              <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="social-link" aria-label="Instagram">
                 <i className="bi bi-instagram"></i>
               </a>
-              <a href="#" className="social-link" aria-label="LinkedIn">
+              <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="social-link" aria-label="LinkedIn">
                 <i className="bi bi-linkedin"></i>
               </a>
             </div>
@@ -115,11 +122,25 @@ const Footer = () => {
             <div className="d-flex align-items-center">
               <div className="dropdown language-selector">
                 <button className="btn dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                  <i className="bi bi-globe2 me-1"></i> Tiếng Việt
+                  <i className="bi bi-globe2 me-1"></i> {language === 'en' ? 'English' : 'Tiếng Việt'}
                 </button>
                 <ul className="dropdown-menu" aria-labelledby="languageDropdown">
-                  <li><button className="dropdown-item">English</button></li>
-                  <li><button className="dropdown-item active">Tiếng Việt</button></li>
+                  <li>
+                    <button 
+                      className={`dropdown-item ${language === 'en' ? 'active' : ''}`}
+                      onClick={() => handleLanguageChange('en')}
+                    >
+                      English
+                    </button>
+                  </li>
+                  <li>
+                    <button 
+                      className={`dropdown-item ${language === 'vi' ? 'active' : ''}`}
+                      onClick={() => handleLanguageChange('vi')}
+                    >
+                      Tiếng Việt
+                    </button>
+                  </li>
                 </ul>
               </div>
             </div>
