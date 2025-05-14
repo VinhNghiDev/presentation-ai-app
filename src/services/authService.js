@@ -1,9 +1,24 @@
 import axios from 'axios';
 
+// Log environment variables for debugging
+console.log('Environment variables:', {
+  REACT_APP_API_URL: process.env.REACT_APP_API_URL,
+  NODE_ENV: process.env.NODE_ENV
+});
+
 // Tạo instance axios với base URL
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
-  timeout: 10000
+  baseURL: process.env.REACT_APP_API_URL,
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+// Log API configuration
+console.log('API Configuration:', {
+  baseURL: api.defaults.baseURL,
+  headers: api.defaults.headers
 });
 
 // Lưu trữ thông tin người dùng vào localStorage
@@ -41,6 +56,7 @@ const authService = {
   login: async (email, password) => {
     try {
       console.log('Đang gửi request đăng nhập:', { email, password: '***' });
+      console.log('API URL:', api.defaults.baseURL);
       
       const response = await retryWithBackoff(() => 
         api.post('/auth/login', { email, password })
@@ -65,21 +81,131 @@ const authService = {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        statusText: error.response?.statusText
+        statusText: error.response?.statusText,
+        config: {
+          url: error.config?.url,
+          baseURL: error.config?.baseURL,
+          method: error.config?.method,
+          headers: error.config?.headers
+        }
       });
       
       // Xử lý các trường hợp lỗi cụ thể
-      if (error.response?.status === 401) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Kết nối đến server bị timeout');
+      } else if (error.code === 'ERR_NETWORK') {
+        throw new Error('Không thể kết nối đến server. Vui lòng kiểm tra lại kết nối mạng và đảm bảo server đang chạy.');
+      } else if (error.response?.status === 401) {
         throw new Error('Email hoặc mật khẩu không chính xác');
       } else if (error.response?.status === 404) {
         throw new Error('Không tìm thấy tài khoản');
       } else if (error.response?.status === 429) {
         throw new Error('Quá nhiều yêu cầu. Vui lòng thử lại sau 1 phút.');
-      } else if (error.code === 'ECONNABORTED') {
-        throw new Error('Kết nối đến server bị timeout');
       } else {
         throw new Error(error.response?.data?.error || 'Có lỗi xảy ra khi đăng nhập');
       }
+    }
+  },
+
+  // Đăng nhập với Google
+  loginWithGoogle: async () => {
+    try {
+      // Mở cửa sổ popup mới để xác thực với Google
+      const googleAuthUrl = `${process.env.REACT_APP_API_URL}/auth/google`;
+      const width = 500;
+      const height = 600;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2.5;
+      
+      const popup = window.open(
+        googleAuthUrl,
+        'googlePopup',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      
+      // Theo dõi kết quả đăng nhập thông qua message từ popup
+      return new Promise((resolve, reject) => {
+        window.addEventListener('message', async (event) => {
+          // Đảm bảo origin đúng để tránh XSS
+          if (event.origin !== window.location.origin) return;
+          
+          if (event.data.type === 'social_auth_success') {
+            const { user, token } = event.data;
+            
+            // Lưu vào localStorage
+            localStorage.setItem(TOKEN_KEY, token);
+            localStorage.setItem(USER_KEY, JSON.stringify(user));
+            
+            popup.close();
+            resolve({ user, token });
+          } else if (event.data.type === 'social_auth_error') {
+            popup.close();
+            reject(new Error(event.data.error || 'Đăng nhập với Google thất bại'));
+          }
+        });
+        
+        // Theo dõi trường hợp popup bị đóng mà không hoàn thành đăng nhập
+        const checkPopupClosed = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(checkPopupClosed);
+            reject(new Error('Quá trình đăng nhập bị hủy'));
+          }
+        }, 1000);
+      });
+    } catch (error) {
+      console.error('Lỗi đăng nhập với Google:', error);
+      throw new Error('Đăng nhập với Google thất bại. Vui lòng thử lại sau.');
+    }
+  },
+
+  // Đăng nhập với Microsoft
+  loginWithMicrosoft: async () => {
+    try {
+      // Mở cửa sổ popup mới để xác thực với Microsoft
+      const msAuthUrl = `${process.env.REACT_APP_API_URL}/auth/microsoft`;
+      const width = 500;
+      const height = 600;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2.5;
+      
+      const popup = window.open(
+        msAuthUrl,
+        'microsoftPopup',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      
+      // Theo dõi kết quả đăng nhập thông qua message từ popup
+      return new Promise((resolve, reject) => {
+        window.addEventListener('message', async (event) => {
+          // Đảm bảo origin đúng để tránh XSS
+          if (event.origin !== window.location.origin) return;
+          
+          if (event.data.type === 'social_auth_success') {
+            const { user, token } = event.data;
+            
+            // Lưu vào localStorage
+            localStorage.setItem(TOKEN_KEY, token);
+            localStorage.setItem(USER_KEY, JSON.stringify(user));
+            
+            popup.close();
+            resolve({ user, token });
+          } else if (event.data.type === 'social_auth_error') {
+            popup.close();
+            reject(new Error(event.data.error || 'Đăng nhập với Microsoft thất bại'));
+          }
+        });
+        
+        // Theo dõi trường hợp popup bị đóng mà không hoàn thành đăng nhập
+        const checkPopupClosed = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(checkPopupClosed);
+            reject(new Error('Quá trình đăng nhập bị hủy'));
+          }
+        }, 1000);
+      });
+    } catch (error) {
+      console.error('Lỗi đăng nhập với Microsoft:', error);
+      throw new Error('Đăng nhập với Microsoft thất bại. Vui lòng thử lại sau.');
     }
   },
 

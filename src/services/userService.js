@@ -28,9 +28,53 @@ const mockUsers = [
   }
 ];
 
-const userService = {
+const API_URL = process.env.REACT_APP_API_URL;
+
+class UserService {
+  // Lấy thông tin người dùng theo username
+  async getUserByUsername(username) {
+    try {
+      const response = await fetch(`${API_URL}/users/username/${username}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting user by username:', error);
+      throw error;
+    }
+  }
+
+  // Lấy thông tin người dùng theo ID
+  async getUserById(userId) {
+    try {
+      const response = await fetch(`${API_URL}/users/${userId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch user');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting user by ID:', error);
+      throw error;
+    }
+  }
+
+  // Lấy thông tin người dùng hiện tại
+  async getCurrentUser() {
+    try {
+      const response = await fetch(`${API_URL}/users/me`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch current user');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      throw error;
+    }
+  }
+
   // Lấy danh sách người dùng
-  getUsers: async (page = 1, limit = 10, search = '') => {
+  async getUsers(page = 1, limit = 10, search = '') {
     try {
       // Sử dụng mock data cho testing
       const filteredUsers = mockUsers.filter(user => 
@@ -55,28 +99,10 @@ const userService = {
     } catch (error) {
       throw error.response?.data || error.message;
     }
-  },
-
-  // Lấy thông tin chi tiết người dùng
-  getUserById: async (userId) => {
-    try {
-      // Sử dụng mock data cho testing
-      const user = mockUsers.find(u => u.id === userId);
-      if (!user) throw new Error('User not found');
-      return user;
-
-      // Uncomment khi có API thật
-      // const response = await axios.get(`${config.API_URL}/users/${userId}`, {
-      //   headers: getAuthHeader()
-      // });
-      // return response.data;
-    } catch (error) {
-      throw error.response?.data || error.message;
-    }
-  },
+  }
 
   // Cập nhật thông tin người dùng
-  updateUser: async (userId, userData) => {
+  async updateUser(userId, userData) {
     try {
       // Sử dụng mock data cho testing
       const userIndex = mockUsers.findIndex(u => u.id === userId);
@@ -97,10 +123,10 @@ const userService = {
     } catch (error) {
       throw error.response?.data || error.message;
     }
-  },
+  }
 
   // Xóa người dùng
-  deleteUser: async (userId) => {
+  async deleteUser(userId) {
     try {
       // Sử dụng mock data cho testing
       const userIndex = mockUsers.findIndex(u => u.id === userId);
@@ -119,10 +145,10 @@ const userService = {
     } catch (error) {
       throw error.response?.data || error.message;
     }
-  },
+  }
 
   // Thay đổi trạng thái người dùng (active/inactive)
-  toggleUserStatus: async (userId) => {
+  async toggleUserStatus(userId) {
     try {
       // Sử dụng mock data cho testing
       const userIndex = mockUsers.findIndex(u => u.id === userId);
@@ -139,10 +165,10 @@ const userService = {
     } catch (error) {
       throw error.response?.data || error.message;
     }
-  },
+  }
 
   // Thay đổi vai trò người dùng
-  changeUserRole: async (userId, role) => {
+  async changeUserRole(userId, role) {
     try {
       // Sử dụng mock data cho testing
       const userIndex = mockUsers.findIndex(u => u.id === userId);
@@ -160,6 +186,6 @@ const userService = {
       throw error.response?.data || error.message;
     }
   }
-};
+}
 
-export default userService; 
+export default new UserService(); 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUser } from '../services/authService';
+import authService from '../services/authService';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
@@ -18,7 +18,7 @@ const ProfilePage = () => {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        const userData = getCurrentUser();
+        const userData = authService.getCurrentUser();
         if (!userData) {
           navigate('/login');
           return;
